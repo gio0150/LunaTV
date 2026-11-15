@@ -286,7 +286,9 @@ object Updates {
         val url = asset.optString("browser_download_url").takeIf {
             it.startsWith("https://github.com/${BuildConfig.UPDATE_REPO}/releases/download/")
         } ?: error("invalid APK URL")
-        return Release(version, url, json.optString("body", "").take(16_000), packageId = if (independent) MigrationIdentity.target else BuildConfig.APPLICATION_ID)
+        val packageId = if (BuildConfig.LUNA_BRAND) BuildConfig.APPLICATION_ID
+            else if (independent) MigrationIdentity.target else BuildConfig.APPLICATION_ID
+        return Release(version, url, json.optString("body", "").take(16_000), packageId = packageId)
     }
 
     private fun read(url: String): String {
