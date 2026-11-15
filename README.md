@@ -36,8 +36,8 @@ LunaTV-<version>-standard.apk
 ./gradlew assembleStandardRelease \
   -PlunaBrand \
   -PupdateRepo=gio0150/LunaTV \
-  -PversionName=1.0.0 \
-  -PversionCode=305
+  -PversionName=1.0.1 \
+  -PversionCode=1000001
 ```
 
 产物位于：
@@ -67,8 +67,8 @@ https://api.github.com/repos/<owner>/<repo>/releases/latest
 `.github/workflows/release.yml` 在推送 `v*` 标签时构建并创建 Release：
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
 工作流会：
@@ -78,6 +78,11 @@ git push origin v1.0.0
 3. 构建 `assembleStandardRelease -PlunaBrand`；
 4. 将 APK 重命名为 `LunaTV-<version>-standard.apk`；
 5. 上传到对应的 GitHub Release。
+
+工作流会按标签版本自动生成递增的 `versionCode`（`MAJOR * 1000000 + MINOR * 1000 + PATCH`），例如
+`v1.0.1` 对应 `1000001`。
+
+发布规则：每次修复问题都发布一个新的补丁版本（`1.0.1`、`1.0.2`……），不要覆盖已有 Release；新版本必须使用同一个签名密钥，并保持 `versionCode` 高于已安装版本。
 
 需要在仓库 Settings → Secrets and variables → Actions 中配置：
 

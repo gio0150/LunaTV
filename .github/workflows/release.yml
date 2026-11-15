@@ -51,12 +51,30 @@ jobs:
       - name: Build release APK
         env:
           VERSION: ${{ github.ref_name }}
-          BUILD_NUMBER: ${{ github.run_number }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          set -e
+          set -eu
           VERSION="${VERSION#v}"
-          VERSION_CODE=$((300 + BUILD_NUMBER))
+          CORE="${VERSION%%-*}"
+          MAJOR="${CORE%%.*}"
+          REST="${CORE#*.}"
+          if [ "$REST" = "$CORE" ]; then
+            MINOR=0
+            PATCH=0
+          else
+            MINOR="${REST%%.*}"
+            PATCH="${REST#*.}"
+            if [ "$PATCH" = "$REST" ]; then
+              PATCH=0
+            fi
+          fi
+          case "${MAJOR}${MINOR}${PATCH}" in
+            *[!0-9]*)
+              echo "release tag must be a numeric version such as v1.0.1" >&2
+              exit 1
+              ;;
+          esac
+          VERSION_CODE=$((10#$MAJOR * 1000000 + 10#$MINOR * 1000 + 10#$PATCH))
           ./gradlew assembleStandardRelease \
             -PlunaBrand \
             -PupdateRepo="$REPOSITORY" \
