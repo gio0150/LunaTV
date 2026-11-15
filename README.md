@@ -19,6 +19,13 @@ LunaTV-<version>-standard.apk
 
 这是新的包名，和旧版 `app.halotv.remote.test` 不兼容。首次安装前需要卸载旧版，旧版应用数据会丢失。
 
+## 官网
+
+官网源码在 [`website/`](website/)，入口为 [`website/index.html`](website/index.html)。页面使用本地
+`assets/` 中的图片、动态壁纸和背景音乐，不依赖外部图片服务。
+
+推送到 `master` 后，GitHub Actions 会自动部署到 GitHub Pages。
+
 ## 从源码构建
 
 需要 JDK 17 与 Android SDK（compileSdk 36）。
