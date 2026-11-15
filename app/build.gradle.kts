@@ -45,7 +45,7 @@ android {
         // see system/DiagLog.kt.
         val diag = project.hasProperty("diag")
         buildConfigField("boolean", "DIAG", diag.toString())
-        when { lunaBrand -> versionNameSuffix = "-luna"; remoteTest -> versionNameSuffix = "-luna"; diag -> versionNameSuffix = "-diag" }
+        when { remoteTest -> versionNameSuffix = "-luna"; diag -> versionNameSuffix = "-diag" }
     }
 
     // standard: a normal HOME app. guard: no HOME intent filter at all, for China-market firmwares
