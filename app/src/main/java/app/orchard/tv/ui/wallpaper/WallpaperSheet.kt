@@ -714,7 +714,7 @@ internal fun AboutSettingsContent(modifier: Modifier = Modifier) {
         }
         Spacer(Modifier.height(16.dp))
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.075f)).padding(16.dp)) {
-            DonationBlock()
+            DonationBlock(compact = true)
         }
     }
 }
