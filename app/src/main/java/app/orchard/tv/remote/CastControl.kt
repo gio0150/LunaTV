@@ -69,11 +69,8 @@ object CastControl {
     fun setEnabled(context: Context, enabled: Boolean): SwitchResult {
         val pkg = installedReceiver(context)
         if (pkg == null) return systemWifiDisplay(context, enabled)
-        val remote = SystemRemote.get(context)
-        if (!remote.ready) {
-            val restored = remote.enabled() && runCatching { remote.restore() }.getOrDefault(false)
-            if (!restored) return SwitchResult(false, false, "no_adb")
-        }
+        val remote = ensureRemote(context)
+            ?: return SwitchResult(false, false, "no_adb")
         return if (enabled) {
             val result = remote.startCast(pkg)
             val pid = result.getOrNull()?.lineSequence()?.map { it.trim() }?.firstOrNull { it.isNotEmpty() && it.all(Char::isDigit) }
@@ -88,6 +85,18 @@ object CastControl {
                 SwitchResult(true, false)
             } else SwitchResult(false, true, result.exceptionOrNull()?.message ?: "stop_failed")
         }
+    }
+
+    /**
+     * The cast switch owns the ADB connection instead of depending on the phone remote page.
+     * Reuse a saved session when possible; otherwise make the first loopback connection and let
+     * adbd show its normal RSA authorization prompt on the TV.
+     */
+    private fun ensureRemote(context: Context): SystemRemote? {
+        val remote = SystemRemote.get(context)
+        if (remote.ready) return remote
+        if (remote.enabled() && runCatching { remote.restore() }.getOrDefault(false)) return remote
+        return if (runCatching { remote.connect(remote.port()) }.getOrDefault(false)) remote else null
     }
 
     fun lastDesired(context: Context): Boolean? =
