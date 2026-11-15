@@ -27,8 +27,8 @@ LunaTV-<version>-standard.apk
 ./gradlew assembleStandardRelease \
   -PlunaBrand \
   -PupdateRepo=gio0150/LunaTV \
-  -PversionName=3.2.1 \
-  -PversionCode=301
+  -PversionName=1.0.0 \
+  -PversionCode=305
 ```
 
 产物位于：
@@ -58,8 +58,8 @@ https://api.github.com/repos/<owner>/<repo>/releases/latest
 `.github/workflows/release.yml` 在推送 `v*` 标签时构建并创建 Release：
 
 ```bash
-git tag v3.2.1
-git push origin v3.2.1
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 工作流会：
@@ -98,6 +98,6 @@ git push origin v3.2.1
 ## 许可与来源
 
 代码使用 MIT License，详见 [LICENSE](LICENSE)。原始版权归 `pengchujin`；HaloTV 由
-`Null_` 整理发布。Luna TV 的品牌与修改由本仓库维护者完成，不代表上游、Apple 或电视厂商背书。
+`Null_` 整理发布；Luna TV 由 `Gio(gio0515@hotmail.com)` 整理发布，不代表上游、Apple 或电视厂商背书。
 
 壁纸、在线视频、字体、图标及第三方依赖分别遵循其各自许可；开源代码许可不等同于媒体内容授权。

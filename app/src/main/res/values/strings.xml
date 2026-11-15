@@ -288,6 +288,10 @@
     <string name="st_refresh_60">60 Hz</string>
     <string name="st_refresh_120">120 Hz</string>
     <string name="cc_about_attribution">Luna TV is an unofficial derivative of the open-source Aerial project.</string>
+    <string name="donate_thanks">Thank you for your support</string>
+    <string name="donate_body">Thank you for your support — it helps me make Luna TV better. Scan with WeChat or Alipay.</string>
+    <string name="donate_wechat">WeChat</string>
+    <string name="donate_alipay">Alipay</string>
     <string name="donate_close">Close</string>
     <string name="guard_consent_description">Home Guard can intercept Home and bring Luna TV to the front. It uses Accessibility; optional recovery permissions may re-enable it after restart. Turn it off here at any time. Disabling it does not restore the default launcher; change that in system settings.</string>
     <string name="guard_agree_enable">Agree and set up Home Guard</string>
@@ -299,7 +303,7 @@
     <string name="cc_phone_control_hint">Scan the code with your phone on the same Wi-Fi to open the phone control page.</string>
     <string name="cc_phone_control_offline">The phone control page is unavailable. Check the TV network.</string>
     <string name="halo_notice_title">Luna TV Notice</string>
-    <string name="halo_notice_body">Luna TV is not a work by the original author of Aerial, nor an official release. This project is a derivative of the open-source pengchujin/aerial-tv project (https://github.com/pengchujin/aerial-tv), prepared and published by Null_. The original Aerial project and its name, code, and licenses belong to their respective rights holders. This project is not affiliated with or endorsed by the author of Aerial, Apple, or any TV manufacturer.</string>
+    <string name="halo_notice_body">Luna TV is not a work by the original author of Aerial, nor an official release. This project is a derivative of the open-source pengchujin/aerial-tv project (https://github.com/pengchujin/aerial-tv), prepared and published by Gio(gio0515@hotmail.com). The original Aerial project and its name, code, and licenses belong to their respective rights holders. This project is not affiliated with or endorsed by the author of Aerial, Apple, or any TV manufacturer.</string>
     <string name="halo_notice_close">Close</string>
     <string name="halo_notice_back">Press Back to close</string>
     <string name="home_wallpaper_screensaver">Wallpaper &amp; Screensaver</string>
@@ -665,7 +669,7 @@ WeChat: scan code  ·  Email: 1227888560@qq.com</string>
     <string name="quiz_remote_hint">Arrows to choose · OK to answer</string>
     <string name="welcome3_eyebrow">Welcome to</string>
     <string name="welcome3_tagline">Your TV, the way you like it.</string>
-    <string name="welcome3_credit">Based on the open-source Aerial project. Maintained and published by Null_.</string>
+    <string name="welcome3_credit">Based on the open-source Aerial project. Maintained and published by Gio(gio0515@hotmail.com).</string>
     <string name="welcome3_thanks">Thanks to the Aerial author and all open-source contributors.</string>
     <string name="welcome3_start">Get started</string>
     <string name="welcome3_disclaimer">Not an official Aerial release. No affiliation with Apple or TV manufacturers.</string>

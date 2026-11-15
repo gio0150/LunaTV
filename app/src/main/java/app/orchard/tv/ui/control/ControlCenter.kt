@@ -59,6 +59,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.runtime.CompositionLocalProvider
 import app.orchard.tv.ui.components.LocalPressableEnabled
+import app.orchard.tv.ui.components.DonationBlock
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.animation.core.snap
@@ -784,6 +785,8 @@ private fun HaloNoticeDialog(onDismiss: () -> Unit) {
                 Spacer(Modifier.height(16.dp))
                 BasicText(stringResource(R.string.halo_notice_title), style = Type.Body.copy(color = Color(0xFFBFD1E4)))
                 Spacer(Modifier.weight(1f))
+                DonationBlock(compact = true)
+                Spacer(Modifier.height(18.dp))
                 BasicText(stringResource(R.string.cc_about_attribution), style = Type.Caption.copy(color = Color(0xFFA4BAD1)))
             }
             BoxWithConstraints(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 24.dp, vertical = 18.dp)) {

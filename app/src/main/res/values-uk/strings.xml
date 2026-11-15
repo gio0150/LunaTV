@@ -290,7 +290,7 @@
     <string name="cc_system_settings">Системні налаштування</string>
     <string name="cc_halo_settings">Налаштування Luna TV</string>
     <string name="halo_notice_title">Відомості про Luna TV</string>
-    <string name="halo_notice_body">Luna TV не є твором автора Aerial або офіційним випуском. Проєкт створено на основі відкритого проєкту pengchujin/aerial-tv (https://github.com/pengchujin/aerial-tv), підготовлено та опубліковано Null_. Права на оригінальний проєкт Aerial, його назву, код і ліцензії належать відповідним правовласникам. Проєкт не пов’язаний з автором Aerial, Apple чи виробниками телевізорів та не отримав їхнього схвалення.</string>
+    <string name="halo_notice_body">Luna TV не є твором автора Aerial або офіційним випуском. Проєкт створено на основі відкритого проєкту pengchujin/aerial-tv (https://github.com/pengchujin/aerial-tv), підготовлено та опубліковано Gio(gio0515@hotmail.com). Права на оригінальний проєкт Aerial, його назву, код і ліцензії належать відповідним правовласникам. Проєкт не пов’язаний з автором Aerial, Apple чи виробниками телевізорів та не отримав їхнього схвалення.</string>
     <string name="halo_notice_close">Закрити</string>
     <string name="halo_notice_back">Натисніть «Назад», щоб закрити</string>
     <string name="home_wallpaper_screensaver">Шпалери й заставка</string>
@@ -611,7 +611,7 @@ WeChat: scan code  ·  Email: 1227888560@qq.com</string>
     <string name="quiz_remote_hint">Стрілки: вибір · OK: відповідь</string>
     <string name="welcome3_eyebrow">Вітаємо</string>
     <string name="welcome3_tagline">Ваш телевізор — саме такий, як вам подобається.</string>
-    <string name="welcome3_credit">На основі відкритого проєкту Aerial. Підтримка й публікація: Null_.</string>
+    <string name="welcome3_credit">На основі відкритого проєкту Aerial. Підтримка й публікація: Gio(gio0515@hotmail.com).</string>
     <string name="welcome3_thanks">Дякуємо автору Aerial та всім учасникам відкритих проєктів.</string>
     <string name="welcome3_start">Почати</string>
     <string name="welcome3_disclaimer">Неофіційний випуск Aerial. Не пов’язаний з Apple та виробниками ТВ.</string>

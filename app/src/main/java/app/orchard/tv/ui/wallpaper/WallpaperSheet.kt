@@ -1,6 +1,7 @@
 package app.orchard.tv.ui.wallpaper
 
 import app.orchard.tv.BuildConfig
+import app.orchard.tv.ui.components.DonationBlock
 
 import androidx.compose.ui.draw.drawBehind
 
@@ -692,22 +693,28 @@ private fun CastInfoRow(label: String, value: String, valueColor: Color = Palett
 /** Two readable columns use the space previously occupied by the phone card on About. */
 @Composable
 internal fun AboutSettingsContent(modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.075f)).padding(16.dp)) {
-        BasicText(stringResource(R.string.halo_notice_title), style = Type.Title)
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            Column(Modifier.weight(1f)) {
-                BasicText(stringResource(R.string.halo_notice_body), style = Type.Body.copy(lineHeight = 20.sp))
-                Spacer(Modifier.height(10.dp))
-                BasicText(stringResource(R.string.halo_free_notice), style = Type.Body.copy(lineHeight = 20.sp))
+    Column(modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.075f)).padding(16.dp)) {
+            BasicText(stringResource(R.string.halo_notice_title), style = Type.Title)
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                Column(Modifier.weight(1f)) {
+                    BasicText(stringResource(R.string.halo_notice_body), style = Type.Body.copy(lineHeight = 20.sp))
+                    Spacer(Modifier.height(10.dp))
+                    BasicText(stringResource(R.string.halo_free_notice), style = Type.Body.copy(lineHeight = 20.sp))
+                }
+                Column(Modifier.weight(1f)) {
+                    BasicText(stringResource(R.string.bing_source_notice), style = Type.Body.copy(lineHeight = 20.sp))
+                    Spacer(Modifier.height(10.dp))
+                    BasicText(stringResource(R.string.aerial_source_about), style = Type.Body.copy(lineHeight = 20.sp))
+                    Spacer(Modifier.height(10.dp))
+                    BasicText(stringResource(R.string.halo_project_links_body), style = Type.Body.copy(lineHeight = 20.sp))
+                }
             }
-            Column(Modifier.weight(1f)) {
-                BasicText(stringResource(R.string.bing_source_notice), style = Type.Body.copy(lineHeight = 20.sp))
-                Spacer(Modifier.height(10.dp))
-                BasicText(stringResource(R.string.aerial_source_about), style = Type.Body.copy(lineHeight = 20.sp))
-                Spacer(Modifier.height(10.dp))
-                BasicText(stringResource(R.string.halo_project_links_body), style = Type.Body.copy(lineHeight = 20.sp))
-            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.075f)).padding(16.dp)) {
+            DonationBlock()
         }
     }
 }

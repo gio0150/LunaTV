@@ -6,7 +6,7 @@ Luna TV 基于 HaloTV 3.x 二次开发，HaloTV 又基于
 
 - 上游代码：`pengchujin/aerial-tv`
 - HaloTV 整理与发布：`Null_` / `Null9797/halo-tv`
-- Luna TV 品牌与修改：本仓库维护者
+- Luna TV 整理与发布：`Gio(gio0515@hotmail.com)`
 
 Luna TV 是独立分支，不是 Aerial 原作者、HaloTV 作者或任何电视厂商的官方发行版。Luna TV
 品牌与修改不代表上游、Apple 或电视厂商背书。

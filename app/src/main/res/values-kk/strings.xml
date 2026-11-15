@@ -290,7 +290,7 @@
     <string name="cc_system_settings">Жүйе баптаулары</string>
     <string name="cc_halo_settings">Luna TV баптаулары</string>
     <string name="halo_notice_title">Luna TV туралы мәлімдеме</string>
-    <string name="halo_notice_body">Luna TV Aerial авторының туындысы немесе ресми нұсқасы емес. Бұл жоба pengchujin/aerial-tv ашық жобасына (https://github.com/pengchujin/aerial-tv) негізделген, оны Null_ әзірлеп жариялаған. Aerial жобасының атауы, коды және лицензиялары тиісті құқық иелеріне тиесілі. Жоба Aerial авторымен, Apple компаниясымен немесе теледидар өндірушілерімен байланысты емес және олар мақұлдамаған.</string>
+    <string name="halo_notice_body">Luna TV Aerial авторының туындысы немесе ресми нұсқасы емес. Бұл жоба pengchujin/aerial-tv ашық жобасына (https://github.com/pengchujin/aerial-tv) негізделген, оны Gio(gio0515@hotmail.com) әзірлеп жариялаған. Aerial жобасының атауы, коды және лицензиялары тиісті құқық иелеріне тиесілі. Жоба Aerial авторымен, Apple компаниясымен немесе теледидар өндірушілерімен байланысты емес және олар мақұлдамаған.</string>
     <string name="halo_notice_close">Жабу</string>
     <string name="halo_notice_back">Жабу үшін Артқа түймесін басыңыз</string>
     <string name="home_wallpaper_screensaver">Тұсқағаз және экран сақтағыш</string>
@@ -611,7 +611,7 @@ WeChat: scan code  ·  Email: 1227888560@qq.com</string>
     <string name="quiz_remote_hint">Бағытпен таңда · OK: жауап</string>
     <string name="welcome3_eyebrow">Қош келдіңіз</string>
     <string name="welcome3_tagline">Теледидарыңыз өзіңізге ұнағандай болсын.</string>
-    <string name="welcome3_credit">Aerial ашық жобасы негізінде. Қолдау және жариялау: Null_.</string>
+    <string name="welcome3_credit">Aerial ашық жобасы негізінде. Қолдау және жариялау: Gio(gio0515@hotmail.com).</string>
     <string name="welcome3_thanks">Aerial авторына және ашық жоба қатысушыларына рақмет.</string>
     <string name="welcome3_start">Бастау</string>
     <string name="welcome3_disclaimer">Aerial ресми нұсқасы емес. Apple не теледидар өндірушілеріне қатысы жоқ.</string>

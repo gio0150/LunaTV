@@ -287,6 +287,10 @@
     <string name="st_refresh_60">60Hz</string>
     <string name="st_refresh_120">120Hz</string>
     <string name="cc_about_attribution">Luna TV 基于 Aerial 开源项目二次开发，非 Aerial 官方版本。</string>
+    <string name="donate_thanks">感谢您的打赏</string>
+    <string name="donate_body">感谢您的打赏，让我做得更好。微信或支付宝扫码支持。</string>
+    <string name="donate_wechat">微信</string>
+    <string name="donate_alipay">支付宝</string>
     <string name="donate_close">关闭</string>
     <string name="guard_consent_description">桌面守护会使用无障碍服务处理 Home 键，并在原桌面出现时切回 Luna TV；授予恢复权限后，重启可能自动恢复守护。你可以随时在此关闭。关闭后默认桌面仍需在系统设置中更改。</string>
     <string name="guard_agree_enable">同意并设置桌面守护</string>
@@ -300,7 +304,7 @@
     <string name="halo_notice_title">关于 Luna TV</string>
     <string name="halo_notice_body">Luna TV 并非 Aerial 原作者作品，也不是官方发行版。
 
-本项目基于 pengchujin/aerial-tv（https://github.com/pengchujin/aerial-tv）开源项目进行二次开发，由 Null_ 整理和发布。
+本项目基于 pengchujin/aerial-tv（https://github.com/pengchujin/aerial-tv）开源项目进行二次开发，由 Gio(gio0515@hotmail.com) 整理和发布。
 
 Aerial 原项目及其名称、代码和许可归原作者及各自权利人所有。本项目与 Aerial 原作者、Apple、电视厂商均无隶属或背书关系。</string>
     <string name="halo_notice_close">关闭</string>
@@ -668,7 +672,7 @@ Aerial 原项目及其名称、代码和许可归原作者及各自权利人所�
     <string name="quiz_remote_hint">方向键选择 · 确认键作答</string>
     <string name="welcome3_eyebrow">欢迎进入</string>
     <string name="welcome3_tagline">让电视，回到你喜欢的样子。</string>
-    <string name="welcome3_credit">基于 Aerial 开源项目二次开发，由 Null_ 整理与发布。</string>
+    <string name="welcome3_credit">基于 Aerial 开源项目二次开发，由 Gio(gio0515@hotmail.com) 整理与发布。</string>
     <string name="welcome3_thanks">感谢 Aerial 原作者及所有开源贡献者。</string>
     <string name="welcome3_start">开始使用</string>
     <string name="welcome3_disclaimer">非 Aerial 官方版本，与 Apple 及电视厂商无隶属或背书关系。</string>
