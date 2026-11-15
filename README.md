@@ -24,6 +24,8 @@ LunaTV-<version>-standard.apk
 官网源码在 [`website/`](website/)，入口为 [`website/index.html`](website/index.html)。页面使用本地
 `assets/` 中的图片、动态壁纸和背景音乐，不依赖外部图片服务。
 
+官网地址：[https://gio0150.github.io/LunaTV/](https://gio0150.github.io/LunaTV/)
+
 推送到 `master` 后，GitHub Actions 会自动部署到 GitHub Pages。
 
 ## 从源码构建
