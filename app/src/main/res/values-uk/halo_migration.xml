@@ -1,0 +1,14 @@
+<resources>
+  <string name="halo_migration_welcome">Welcome to Luna TV Independent</string>
+  <string name="halo_migration_import_description">You can import settings, wallpapers and custom icons from the Luna TV bridge edition on this device. The old app and its data will remain. Default Home, screen saver and guard permissions need to be configured again. Family rules and saved PINs are copied without activating a mode.</string>
+  <string name="halo_migration_import">Import from the bridge edition</string>
+  <string name="halo_migration_importing">Importing… Please keep this page open.</string>
+  <string name="halo_migration_done">Imported successfully. Configure Home and guard permissions in the independent edition.</string>
+  <string name="halo_migration_failed">Import could not finish: %1$s</string>
+  <string name="halo_migration_fresh">Start fresh</string>
+  <string name="halo_migration_install">Install Luna TV Independent</string>
+  <string name="halo_migration_open">Open Luna TV Independent</string>
+  <string name="halo_migration_hint">Independent package and signing key allow Luna TV and Aerial to coexist. Install, import and verify the independent edition before removing the old Luna TV. Configure Home and guard again.</string>
+  <string name="halo_migration_phone_hint">The bridge edition accepts only a newer Luna TV APK of the same edition, or its officially signed Independent edition. Other apps and mismatched editions are rejected.</string>
+  <string name="halo_migration_restore">Restore this bridge edition’s guard</string>
+</resources>

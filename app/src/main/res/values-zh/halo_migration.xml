@@ -1,0 +1,14 @@
+<resources>
+  <string name="halo_migration_welcome">欢迎使用 Luna TV 独立版</string>
+  <string name="halo_migration_import_description">可从本机 Luna TV 过渡版导入设置、壁纸、视频及自定义图标。旧应用和数据会保留；默认桌面、屏保与守护权限需要重新配置。儿童长辈规则和密码会保留，但不会自动进入模式。导入成功后将停止旧版桌面守护。</string>
+  <string name="halo_migration_import">从过渡版导入设置与素材</string>
+  <string name="halo_migration_importing">正在导入，请保持此页面打开…</string>
+  <string name="halo_migration_done">导入完成，请在独立版重新配置默认桌面和守护权限。</string>
+  <string name="halo_migration_failed">导入未完成：%1$s</string>
+  <string name="halo_migration_fresh">全新开始，不导入旧数据</string>
+  <string name="halo_migration_install">安装 Luna TV 独立版</string>
+  <string name="halo_migration_open">打开 Luna TV 独立版</string>
+  <string name="halo_migration_hint">独立版使用新包名与专属签名，可与 Aerial 共存。请先安装、导入并确认运行正常，再卸载旧 Luna TV；默认桌面与守护权限需要重新开启。</string>
+  <string name="halo_migration_phone_hint">过渡版仅接受同类型、较新版本的 Luna TV 安装包，或官方签名的对应独立版。不能推送其他应用，也不能混用 Standard、Guard 和 Lite。</string>
+  <string name="halo_migration_restore">恢复此过渡版的桌面守护</string>
+</resources>

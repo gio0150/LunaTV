@@ -1,0 +1,32 @@
+# Gradle / Android build output
+build/
+*/build/
+.gradle/
+.kotlin/
+local.properties
+
+# Local signing material must never enter a public repository
+local/
+*.jks
+*.keystore
+*.p12
+*.pem
+signing.properties
+independent-signing.properties
+
+# IDE / OS noise
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.iml
+
+# Generated packages and logs
+*.apk
+*.aab
+*.ap_
+*.log
+
+# Development-only backups from the original working tree
+backups/
+legacy-backups/
