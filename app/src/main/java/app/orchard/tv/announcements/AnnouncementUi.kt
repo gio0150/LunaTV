@@ -52,19 +52,12 @@ internal fun announcementRevision(): Int {
 
 @Composable
 fun AnnouncementEntry(vm: HomeViewModel) {
-    announcementRevision()
-    val context = LocalContext.current
-    // Keep navigation stable; only the badge follows actionable unread revisions.
-    val unread = Announcements.unread() != null
     Box(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        MenuRow(Glyph.Info, stringResource(R.string.halo_feedback_entry),
+        MenuRow(Glyph.Play, stringResource(R.string.luna_live_entry),
             modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.075f)),
             trailing = "›", rowHeight = 40.dp, onClick = {
-                vm.whenUnlocked { vm.overlay = Overlay.Feedback }
+                vm.whenUnlocked { vm.overlay = Overlay.Live }
             })
-        if (unread) Box(Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 7.dp)
-            .size(6.dp).clip(androidx.compose.foundation.shape.CircleShape)
-            .background(Color(0xFFFF453A)).testTag("announcement-unread-dot"))
     }
 }
 

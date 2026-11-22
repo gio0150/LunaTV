@@ -27,8 +27,8 @@ android {
         minSdk = 21
         targetSdk = 34
         versionCode = (findProperty("versionCode") as String?)?.toInt()
-            ?: 1000002
-        versionName = (findProperty("versionName") as String?) ?: "1.0.2"
+            ?: 1000003
+        versionName = (findProperty("versionName") as String?) ?: "1.0.3"
         buildConfigField("boolean", "HALO_IS_INDEPENDENT", haloIndependent.toString())
         buildConfigField("boolean", "HALO_IS_BRIDGE", (!haloIndependent).toString())
         buildConfigField("boolean", "LUNA_BRAND", lunaBrand.toString())
@@ -138,8 +138,11 @@ dependencies {
     implementation("androidx.profileinstaller:profileinstaller:1.4.0")
     // Aerial films. 1.8 is the last Media3 that runs on Android 5.0 (1.9 raised minSdk to 23).
     implementation("androidx.media3:media3-exoplayer:1.8.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.8.1")
+    implementation("androidx.media3:media3-exoplayer-rtsp:1.8.1")
     implementation("androidx.media3:media3-datasource:1.8.1")
     implementation("androidx.media3:media3-database:1.8.1")
+    implementation("androidx.media3:media3-ui:1.8.1")
     // Phone setup page (a tiny LAN web server) and the QR code that opens it.
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("com.google.zxing:core:3.5.3")

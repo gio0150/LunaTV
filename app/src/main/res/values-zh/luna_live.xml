@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="luna_live_entry">观看直播</string>
+    <string name="luna_live_title">直播电视</string>
+    <string name="luna_live_no_channel">选择频道</string>
+    <string name="luna_live_add_source">添加直播源</string>
+    <string name="luna_live_favorites">收藏频道</string>
+    <string name="luna_live_all_channels">全部频道</string>
+    <string name="luna_live_hint">方向键选择 · MENU 收藏 · 返回键退出</string>
+    <string name="luna_live_loading">正在加载直播…</string>
+    <string name="luna_live_pick_hint">在左侧列表中选择频道</string>
+    <string name="luna_live_line_hint">该频道暂时没有可用线路，请换一个频道。</string>
+    <string name="luna_live_now">播放中</string>
+    <string name="luna_live_setup_title">直播源</string>
+    <string name="luna_live_setup_body">可添加 M3U / M3U8 节目单订阅、公共节目单，或单条直播地址。节目单保存在这台电视上。</string>
+    <string name="luna_live_subscription">节目单订阅</string>
+    <string name="luna_live_url_hint">https://example.com/live.m3u</string>
+    <string name="luna_live_subscribe">添加订阅</string>
+    <string name="luna_live_default_source">使用公共中国频道列表</string>
+    <string name="luna_live_direct">单条直播地址</string>
+    <string name="luna_live_name_hint">频道名称（可留空）</string>
+    <string name="luna_live_direct_hint">HTTP / HTTPS / RTSP / UDP 直播地址</string>
+    <string name="luna_live_add_direct">添加直播</string>
+    <string name="luna_live_back">返回</string>
+    <string name="luna_live_favorite">收藏频道</string>
+    <string name="luna_live_unfavorite">取消收藏</string>
+</resources>

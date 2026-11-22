@@ -734,7 +734,7 @@ class MainActivity : ComponentActivity() {
      */
     private fun startScreensaver(asked: Boolean) {
         if (FirstRunGuideStore.shouldShow(this)) return
-        if (vm.overlay is Overlay.Announcement || vm.overlay == Overlay.Feedback) { restartIdleTimer(); return }
+        if (vm.overlay is Overlay.Announcement || vm.overlay == Overlay.Feedback || vm.overlay == Overlay.Live) { restartIdleTimer(); return }
         AerialSettings.relock()
         // A parent who left Kids mode has walked away.
         Restricted.rearm()

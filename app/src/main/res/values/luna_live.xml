@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="luna_live_entry">Watch live TV</string>
+    <string name="luna_live_title">Live TV</string>
+    <string name="luna_live_no_channel">Choose a channel</string>
+    <string name="luna_live_add_source">Add a live source</string>
+    <string name="luna_live_favorites">Favourites</string>
+    <string name="luna_live_all_channels">All channels</string>
+    <string name="luna_live_hint">D-pad: choose · MENU: favourite · Back: leave</string>
+    <string name="luna_live_loading">Loading live TV…</string>
+    <string name="luna_live_pick_hint">Choose a channel from the list</string>
+    <string name="luna_live_line_hint">This channel has no working line. Try another channel.</string>
+    <string name="luna_live_now">Playing</string>
+    <string name="luna_live_setup_title">Live sources</string>
+    <string name="luna_live_setup_body">Add an M3U / M3U8 playlist subscription, a public playlist, or a single live stream. The playlist is kept on this TV.</string>
+    <string name="luna_live_subscription">Playlist subscription</string>
+    <string name="luna_live_url_hint">https://example.com/live.m3u</string>
+    <string name="luna_live_subscribe">Add subscription</string>
+    <string name="luna_live_default_source">Use public China playlist</string>
+    <string name="luna_live_direct">Single live stream</string>
+    <string name="luna_live_name_hint">Channel name (optional)</string>
+    <string name="luna_live_direct_hint">HTTP / HTTPS / RTSP / UDP stream address</string>
+    <string name="luna_live_add_direct">Add stream</string>
+    <string name="luna_live_back">Back</string>
+    <string name="luna_live_favorite">Favourite channel</string>
+    <string name="luna_live_unfavorite">Remove favourite</string>
+</resources>

@@ -59,6 +59,7 @@ private const val POLL_QUIET_MS = 400L
 sealed interface Overlay {
     data object None : Overlay
     data object Feedback : Overlay
+    data object Live : Overlay
     data class Announcement(val notice: app.orchard.tv.announcements.RemoteAnnouncement, val fromControlCenter: Boolean = false) : Overlay
     data class ControlCenter(val page: CcPage = CcPage.Main) : Overlay
     /** [inFolder]: the menu was opened inside that folder, and closes back to it. */

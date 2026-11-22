@@ -1190,6 +1190,7 @@ fun HomeScreen(
 
         app.orchard.tv.announcements.AnnouncementHost(vm, windowFocused)
         app.orchard.tv.feedback.FeedbackHost(vm)
+        app.orchard.tv.live.LiveHost(vm)
 
         ControlCenter(
             visible = overlay is Overlay.ControlCenter,
