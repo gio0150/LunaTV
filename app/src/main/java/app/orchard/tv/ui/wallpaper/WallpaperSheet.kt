@@ -107,6 +107,7 @@ import app.orchard.tv.remote.CastControl
 import app.orchard.tv.apps.AppEntry
 import app.orchard.tv.island.IslandPreferences
 import app.orchard.tv.island.IslandSettings
+import app.orchard.tv.live.LiveSourcesSettings
 import app.orchard.tv.settings.AerialSettings
 import app.orchard.tv.settings.ClockHours
 import app.orchard.tv.settings.Restricted
@@ -264,7 +265,7 @@ internal fun WallpaperSheet(
                     if (true) {
                         Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.Top) {
                             BasicText(stringResource(if (wallpaperOnly) R.string.home_wallpaper_screensaver else R.string.wp_title), style = Type.LargeTitle.copy(fontWeight = FontWeight.Bold), modifier = Modifier.weight(1f))
-                            if (!wallpaperOnly && recentCategory in 0..9 && recentCategory != 3) ActionChip(stringResource(R.string.halo_recent), Glyph.Calendar) {
+                            if (!wallpaperOnly && recentCategory in 0..10 && recentCategory != 3) ActionChip(stringResource(R.string.halo_recent), Glyph.Calendar) {
                                 settingsCategory = recentCategory
                                 scope.launch { scroll.scrollTo(0) }
                             }
@@ -287,7 +288,7 @@ internal fun WallpaperSheet(
                     Spacer(Modifier.width(12.dp))
                 } else {
                     SettingsSidebar(settingsCategory, recentCategory, remoteFirstFocus, remoteSidebarFocus, islandFirstFocus = islandFirstFocus, onRecent = {
-                        if (recentCategory in 0..9 && recentCategory != 3) { settingsCategory = recentCategory; scope.launch { scroll.scrollTo(0) } }
+                        if (recentCategory in 0..10 && recentCategory != 3) { settingsCategory = recentCategory; scope.launch { scroll.scrollTo(0) } }
                     }) { index ->
                         if (settingsCategory != index) {
                             settingsCategory = index
@@ -575,8 +576,12 @@ internal fun WallpaperSheet(
                         CastSettingsContent()
                         Spacer(Modifier.height(20.dp))
                     }
-                    if (!wallpaperOnly && settingsCategory == 8) AboutSettingsContent()
-                    if (!wallpaperOnly && settingsCategory == 9) IslandSettings(islandPreferences, islandApps(), islandFirstFocus)
+                    if (!wallpaperOnly && settingsCategory == 8) {
+                        LiveSourcesSettings()
+                        Spacer(Modifier.height(20.dp))
+                    }
+                    if (!wallpaperOnly && settingsCategory == 9) AboutSettingsContent()
+                    if (!wallpaperOnly && settingsCategory == 10) IslandSettings(islandPreferences, islandApps(), islandFirstFocus)
                 }
                 if (showPhonePanel) {
                     Spacer(Modifier.width(if (wallpaperOnly) 28.dp else 18.dp))
@@ -780,30 +785,31 @@ private fun WallpaperSourceCard(title: String, subtitle: String, imageId: String
 internal fun SettingsSidebar(selected: Int, recent: Int, remoteFirstFocus: FocusRequester, remoteSidebarFocus: FocusRequester, onRecent: () -> Unit, islandFirstFocus: FocusRequester? = null, onSelect: (Int) -> Unit) {
     val labels = listOf(R.string.halo_cat_appearance, R.string.halo_cat_apps, R.string.settings_category_clock,
         R.string.home_wallpaper_screensaver, R.string.halo_cat_remote, R.string.halo_cat_family,
-        R.string.halo_cat_performance, R.string.halo_cat_cast, R.string.halo_cat_about, R.string.island_title)
-    val glyphs = listOf(Glyph.Home, Glyph.Folder, Glyph.Calendar, Glyph.Photo, Glyph.Switches, Glyph.Kids, Glyph.Performance, Glyph.Cast, Glyph.Info, Glyph.Switches)
+        R.string.halo_cat_performance, R.string.halo_cat_cast, R.string.luna_live_sources_tab,
+        R.string.halo_cat_about, R.string.island_title)
+    val glyphs = listOf(Glyph.Home, Glyph.Folder, Glyph.Calendar, Glyph.Photo, Glyph.Switches, Glyph.Kids, Glyph.Performance, Glyph.Cast, Glyph.Play, Glyph.Info, Glyph.Switches)
     Column(Modifier.width(200.dp).fillMaxHeight()
         .clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.06f)).padding(8.dp)) {
         // Keep category IDs stable for the saved recent entry.
-        listOf(0, 1, 2, 4, 5, 6, 7, 8, 9).forEach { index ->
+        listOf(0, 1, 2, 4, 5, 6, 7, 8, 9, 10).forEach { index ->
             val title = labels[index]
             Pressable(
                 onClick = { onSelect(index) }, focusedScale = 1f,
                 focusRequester = if (index == 4) remoteSidebarFocus else null,
                 modifier = Modifier.fillMaxWidth().focusProperties {
                     if (index == 4 && selected == 4) right = remoteFirstFocus
-                    if (index == 9 && selected == 9 && islandFirstFocus != null) right = islandFirstFocus
+                    if (index == 10 && selected == 10 && islandFirstFocus != null) right = islandFirstFocus
                 }.onFocusChanged { if (it.isFocused) onSelect(index) },
             ) { state ->
                 val bg = when { state.focused -> Palette.Focus; selected == index -> Color.White.copy(alpha = 0.18f); else -> Color.Transparent }
                 val fg = if (state.focused) Palette.OnFocus else Palette.Label
-                Row(Modifier.fillMaxWidth().height(45.dp).clip(RoundedCornerShape(12.dp)).background(bg).padding(horizontal = 10.dp),
+                Row(Modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(12.dp)).background(bg).padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     GlyphIcon(glyphs[index], fg, 18.dp)
                     BasicText(stringResource(title), style = Type.Caption.copy(color = fg), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Spacer(Modifier.height(5.dp))
+            Spacer(Modifier.height(3.dp))
         }
 
     }

@@ -27,8 +27,8 @@ android {
         minSdk = 21
         targetSdk = 34
         versionCode = (findProperty("versionCode") as String?)?.toInt()
-            ?: 1000003
-        versionName = (findProperty("versionName") as String?) ?: "1.0.3"
+            ?: 1000004
+        versionName = (findProperty("versionName") as String?) ?: "1.0.4"
         buildConfigField("boolean", "HALO_IS_INDEPENDENT", haloIndependent.toString())
         buildConfigField("boolean", "HALO_IS_BRIDGE", (!haloIndependent).toString())
         buildConfigField("boolean", "LUNA_BRAND", lunaBrand.toString())

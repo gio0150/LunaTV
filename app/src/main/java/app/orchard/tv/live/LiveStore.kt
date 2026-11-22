@@ -8,6 +8,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.Executors
 
 /**
  * A small, self-contained version of OneTV's LiveRepository: subscriptions, direct links,
@@ -17,9 +18,14 @@ import java.net.URL
 class LiveStore(context: Context) {
     data class Source(val url: String, val name: String, val channels: List<LiveChannel>, val updated: Long)
 
+    /** What the settings page shows for each saved source. */
+    data class SourceInfo(val url: String, val name: String, val channels: Int, val active: Boolean, val updated: Long)
+
     private val file = AtomicFile(File(context.filesDir, "luna-live.json"))
     private val sources = mutableListOf<Source>()
     private val favorites = mutableSetOf<String>()
+    /** Last working line per channel, so repeated zapping skips dead lines. */
+    private val lines = mutableMapOf<String, String>()
     private var active = "local"
     private var lastChannel = ""
 
@@ -62,6 +68,9 @@ class LiveStore(context: Context) {
             root.optJSONArray("favorites")?.let { list ->
                 for (i in 0 until list.length()) favorites += list.optString(i)
             }
+            root.optJSONObject("lines")?.let { saved ->
+                saved.keys().forEach { id -> saved.optString(id)?.takeIf { it.isNotBlank() }?.let { lines[id] = it } }
+            }
         } catch (_: Exception) {
             // A half-written file must not keep live TV from opening.
         }
@@ -69,35 +78,69 @@ class LiveStore(context: Context) {
     }
 
     private fun save() {
-        val sourcesJson = JSONArray()
-        sources.forEach { source ->
-            sourcesJson.put(
+        // Snapshot cheaply on the caller, then build and write the whole JSON on the single
+        // writer thread. Zapping a channel must not serialise 150 channels on the UI thread.
+        val sourcesSnapshot = sources.toList()
+        val favoritesSnapshot = favorites.toList()
+        val linesSnapshot = lines.toMap()
+        val activeSnapshot = active
+        val lastSnapshot = lastChannel
+        writer.execute {
+            val text = runCatching {
+                val sourcesJson = JSONArray()
+                sourcesSnapshot.forEach { source ->
+                    sourcesJson.put(
+                        JSONObject()
+                            .put("url", source.url)
+                            .put("name", source.name)
+                            .put("updated", source.updated)
+                            .put("channels", JSONArray(source.channels.map { it.json() })),
+                    )
+                }
                 JSONObject()
-                    .put("url", source.url)
-                    .put("name", source.name)
-                    .put("updated", source.updated)
-                    .put("channels", JSONArray(source.channels.map { it.json() })),
-            )
-        }
-        val text = JSONObject()
-            .put("active", active)
-            .put("sources", sourcesJson)
-            .put("favorites", JSONArray(favorites.toList()))
-            .put("lastChannel", lastChannel)
-            .toString()
-        val out = file.startWrite()
-        try {
-            out.write(text.toByteArray(Charsets.UTF_8))
-            file.finishWrite(out)
-        } catch (e: Exception) {
-            file.failWrite(out)
-            throw e
+                    .put("active", activeSnapshot)
+                    .put("sources", sourcesJson)
+                    .put("favorites", JSONArray(favoritesSnapshot))
+                    .put("lines", JSONObject().apply { linesSnapshot.forEach { (id, url) -> put(id, url) } })
+                    .put("lastChannel", lastSnapshot)
+                    .toString()
+            }.getOrNull() ?: return@execute
+            val out = file.startWrite()
+            try {
+                out.write(text.toByteArray(Charsets.UTF_8))
+                file.finishWrite(out)
+            } catch (_: Exception) {
+                file.failWrite(out)
+            }
         }
     }
 
     val isEmpty: Boolean get() = sources.none { it.channels.isNotEmpty() }
 
     fun sourceNames(): List<String> = sources.filter { it.channels.isNotEmpty() }.map { it.name }
+
+    fun sourcesInfo(): List<SourceInfo> = sources.map {
+        SourceInfo(it.url, it.name, it.channels.size, it.url == active, it.updated)
+    }
+
+    fun activeName(): String = sources.firstOrNull { it.url == active }?.name.orEmpty()
+
+    fun setActive(url: String) {
+        if (sources.none { it.url == url }) return
+        active = url
+        save()
+    }
+
+    fun preferredLine(channel: LiveChannel): Int {
+        val url = lines[channel.id] ?: return 0
+        return channel.streams.indexOfFirst { it == url }.coerceAtLeast(0)
+    }
+
+    fun rememberLine(channel: LiveChannel, url: String) {
+        if (lines[channel.id] == url) return
+        lines[channel.id] = url
+        save()
+    }
 
     fun channels(): List<LiveChannel> {
         if (sources.none { it.url == active }) active = sources.firstOrNull { it.channels.isNotEmpty() }?.url ?: "local"
@@ -215,6 +258,10 @@ class LiveStore(context: Context) {
     }
 
     companion object {
+        /** Channel zaps must never wait for a full playlist rewrite, and every screen instance
+         *  shares one writer so opening live repeatedly cannot leak idle threads. */
+        private val writer = Executors.newSingleThreadExecutor()
+
         /** A public playlist gives the button something to show on first use; it stays editable. */
         const val DEFAULT_SOURCE = "https://iptv-org.github.io/iptv/countries/cn.m3u"
     }

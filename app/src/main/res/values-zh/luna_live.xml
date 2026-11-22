@@ -24,4 +24,25 @@
     <string name="luna_live_back">返回</string>
     <string name="luna_live_favorite">收藏频道</string>
     <string name="luna_live_unfavorite">取消收藏</string>
+    <string name="luna_live_sources_tab">直播源</string>
+    <string name="luna_live_sources_title">直播源</string>
+    <string name="luna_live_sources_note">已保存的节目单和单条直播地址都在这台电视上。同一时间只使用一个直播源，直播页会读取当前直播源。</string>
+    <string name="luna_live_sources_empty">还没有直播源。可在下方添加订阅，或使用公共中国频道列表。</string>
+    <string name="luna_live_source_active">当前</string>
+    <string name="luna_live_source_activate">使用此源</string>
+    <string name="luna_live_source_refresh">更新</string>
+    <string name="luna_live_source_remove">删除</string>
+    <string name="luna_live_source_remove_confirm">确认删除</string>
+    <string name="luna_live_source_meta">%1$d 个频道 · %2$s</string>
+    <string name="luna_live_source_added">已添加 %1$d 个频道</string>
+    <string name="luna_live_source_refreshed">已更新，共 %1$d 个频道</string>
+    <string name="luna_live_source_removed">已删除 %1$s</string>
+    <string name="luna_live_source_activated">已切换到 %1$s</string>
+    <string name="luna_live_source_failed">失败：%1$s</string>
+    <string name="luna_live_source_working">正在处理…</string>
+    <string name="luna_live_drawer_title">频道</string>
+    <string name="luna_live_channel_count">%1$d 个频道</string>
+    <string name="luna_live_manage">管理直播源</string>
+    <string name="luna_live_drawer_hint">方向键选择 · MENU/返回键关闭</string>
+    <string name="luna_live_loading_channel">正在加载 %1$s…</string>
 </resources>

@@ -24,4 +24,25 @@
     <string name="luna_live_back">Back</string>
     <string name="luna_live_favorite">Favourite channel</string>
     <string name="luna_live_unfavorite">Remove favourite</string>
+    <string name="luna_live_sources_tab">Live sources</string>
+    <string name="luna_live_sources_title">Live sources</string>
+    <string name="luna_live_sources_note">Saved playlists and direct streams live on this TV. Activate one source at a time; the live screen uses the active source.</string>
+    <string name="luna_live_sources_empty">No live source yet. Add a subscription or use the public China playlist below.</string>
+    <string name="luna_live_source_active">Active</string>
+    <string name="luna_live_source_activate">Use this source</string>
+    <string name="luna_live_source_refresh">Update</string>
+    <string name="luna_live_source_remove">Remove</string>
+    <string name="luna_live_source_remove_confirm">Confirm remove</string>
+    <string name="luna_live_source_meta">%1$d channels · %2$s</string>
+    <string name="luna_live_source_added">Added %1$d channels</string>
+    <string name="luna_live_source_refreshed">Updated, %1$d channels</string>
+    <string name="luna_live_source_removed">Removed %1$s</string>
+    <string name="luna_live_source_activated">Now using %1$s</string>
+    <string name="luna_live_source_failed">Failed: %1$s</string>
+    <string name="luna_live_source_working">Working…</string>
+    <string name="luna_live_drawer_title">Channels</string>
+    <string name="luna_live_channel_count">%1$d channels</string>
+    <string name="luna_live_manage">Manage sources</string>
+    <string name="luna_live_drawer_hint">D-pad: choose · MENU/Back: close</string>
+    <string name="luna_live_loading_channel">Loading %1$s…</string>
 </resources>
