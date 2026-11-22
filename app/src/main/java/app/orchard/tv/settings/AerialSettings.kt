@@ -59,15 +59,6 @@ enum class Effects(val key: String) {
     }
 }
 
-/** The refresh rate Aerial requests for its own home window. */
-enum class HomeRefreshRate(val key: String, val hz: Int?) {
-    Auto("auto", null), Hz30("30", 30), Hz60("60", 60), Hz120("120", 120);
-
-    companion object {
-        fun of(key: String?) = entries.firstOrNull { it.key == key } ?: Auto
-    }
-}
-
 /**
  * 24- or 12-hour time. System follows the TV's own setting, and 24 hours where the TV has none: an
  * unset setting means the locale's habit, and zh_CN's is 12-hour, which TV clocks here never show
@@ -162,6 +153,7 @@ object AerialSettings {
     /** The Liquid Glass plate under the top row; some prefer the apps straight on the wallpaper (#151). */
     var homePlate by mutableStateOf(true); private set
     var compactDockCorners by mutableStateOf(false); private set
+    var dockSize by mutableStateOf(DockSize.DEFAULT); private set
     var plateStyle by mutableStateOf(1); private set
 
     /** Individual visibility controls for the desktop clock. */
@@ -249,10 +241,12 @@ object AerialSettings {
     var screensaverClock by mutableStateOf(true); private set
 
     /** Every app's name under its tile, not only the focused one's (issue #28), the top row's on the glass plate too. */
-    private var chosenAllNames by mutableStateOf(false)
+    private var chosenNameStyle by mutableStateOf(0)
 
     /** As chosen; always every name in Elders mode (Restricted). */
-    val showAllNames: Boolean get() = chosenAllNames || (Restricted.active && Restricted.kind == RestrictedKind.Elders)
+    val appNameStyle: Int get() = if ((Restricted.active && Restricted.kind == RestrictedKind.Elders)) 1 else chosenNameStyle
+    val showAllNames: Boolean get() = appNameStyle == 1
+    val largeAppTitle: Boolean get() = appNameStyle == 2
 
     /** Back on Home's top row starts the screensaver, as on tvOS; off for homes where it gets pressed by accident (issue #94). */
     var backStartsScreensaver by mutableStateOf(true); private set
@@ -295,7 +289,6 @@ object AerialSettings {
     var effects by mutableStateOf(Effects.Auto); private set
 
     /** Refresh rate requested by the Aerial window; Auto only switches to OS-declared seamless modes. */
-    var homeRefreshRate by mutableStateOf(HomeRefreshRate.Auto); private set
 
     /** This TV counts as low-end for [Effects.Auto]; see DeviceClass. */
     var lowEnd = false; private set
@@ -346,9 +339,10 @@ object AerialSettings {
         photoMinutes = prefs.getInt("photo_minutes", DAY_MINUTES).takeIf { it in PHOTO_MINUTES } ?: DAY_MINUTES
         homePlate = prefs.getBoolean("home_plate", true)
         compactDockCorners = prefs.getBoolean("compact_dock_corners", false)
+        dockSize = DockSize.normalize(prefs.getInt("dock_size", DockSize.DEFAULT))
         plateStyle = prefs.getInt("plate_style", if (prefs.contains("home_plate")) { if (homePlate) 0 else 2 } else 1).coerceIn(0, 2)
         homePlate = plateStyle != 2
-        chosenAllNames = prefs.getBoolean("show_all_names", false)
+        chosenNameStyle = prefs.getInt("app_name_style", if (prefs.getBoolean("show_all_names", false)) 1 else 0).takeIf { it in 0..2 } ?: 0
         wallpaperAlwaysMoves = prefs.getBoolean("wallpaper_always_moves", true)
         showWeather = prefs.getBoolean("show_weather", true)
         showLunarDate = prefs.getBoolean("show_lunar_date", true)
@@ -364,7 +358,6 @@ object AerialSettings {
         videoWallpaperMuted = prefs.getBoolean("video_wallpaper_muted", true)
         videoWallpaperFit = prefs.getBoolean("video_wallpaper_fit", false)
         effects = Effects.of(prefs.getString("effects", null))
-        homeRefreshRate = HomeRefreshRate.of(prefs.getString("home_refresh_rate", null))
         lowEnd = DeviceClass.lowEnd(app)
     }
 
@@ -437,6 +430,12 @@ object AerialSettings {
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putBoolean("compact_dock_corners", compact) }
     }
 
+    fun chooseDockSize(value: Int) {
+        if (!DockSize.valid(value)) return
+        dockSize = value
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putInt("dock_size", value) }
+    }
+
     fun choosePlateStyle(style: Int) {
         plateStyle = style.coerceIn(0, 2)
         chooseHomePlate(plateStyle != 2)
@@ -505,9 +504,14 @@ object AerialSettings {
         }
     }
 
-    fun chooseShowAllNames(on: Boolean) {
-        chosenAllNames = on
-        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putBoolean("show_all_names", on) }
+    fun chooseShowAllNames(on: Boolean) = chooseAppNameStyle(if (on) 1 else 0)
+
+    fun chooseAppNameStyle(style: Int) {
+        if (style !in 0..2) return
+        chosenNameStyle = style
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+            putInt("app_name_style", style); putBoolean("show_all_names", style == 1)
+        }
     }
 
     fun chooseVideoWallpaperMuted(on: Boolean) {
@@ -585,11 +589,6 @@ object AerialSettings {
     fun chooseEffects(choice: Effects) {
         effects = choice
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putString("effects", choice.key) }
-    }
-
-    fun chooseHomeRefreshRate(choice: HomeRefreshRate) {
-        homeRefreshRate = choice
-        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putString("home_refresh_rate", choice.key) }
     }
 
     fun chooseFocusStyle(style: FocusStyle) {

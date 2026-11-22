@@ -42,6 +42,8 @@ import app.orchard.tv.settings.AerialSettings
 import app.orchard.tv.system.DiagLog
 import app.orchard.tv.ui.theme.Motion
 import app.orchard.tv.wallpaper.Aerial
+import app.orchard.tv.wallpaper.AerialPlayback
+import app.orchard.tv.wallpaper.aerialDecoderError
 import app.orchard.tv.wallpaper.AerialFormats
 import app.orchard.tv.wallpaper.AerialQuality
 import app.orchard.tv.wallpaper.AerialSet
@@ -130,7 +132,10 @@ class LiveFilm {
      * screensaver of its own needs it (Xiaomi MiTV-MFTR0, TCL MT5879: a second film failed to open
      * beside the wallpaper's). The film plays again from here when Home asks for it.
      */
+    internal var handoff: (() -> Unit)? = null
     fun letDecoderGo() {
+        // The native cover must be placed before stop() clears the submitted video buffer.
+        handoff?.let { it(); return }
         frameReady = false
         player?.run { pause(); stop() }
     }
@@ -176,9 +181,11 @@ fun LiveWallpaper(
     otherFormatSaver: Boolean,
     /** When a key was last pressed (uptimeMillis): a slow copy of the stopped film waits for quiet. Read, not observed. */
     lastInputAt: () -> Long = { 0L },
+    gridSettled: () -> Boolean = { true },
     live: LiveFilm,
     releaseForPicker: Boolean = false,
 ) {
+    val gridSettledNow by rememberUpdatedState(gridSettled)
     val context = LocalContext.current
     var player by remember { mutableStateOf<ExoPlayer?>(null) }
     var openedAerialId by remember { mutableStateOf<String?>(null) }
@@ -190,13 +197,17 @@ fun LiveWallpaper(
     // Frames are reaching the screen: the first one has been drawn and the film is not stopped.
     var showing by remember { mutableStateOf(false) }
     var qualityOverride by remember(AerialSettings.aerialQuality) { mutableStateOf<AerialQuality?>(null) }
+    val playback = remember { AerialPlayback("wallpaper") }
+    var qualityFallback by remember(AerialSettings.aerialQuality) { mutableStateOf<String?>(null) }
     var openedQuality by remember { mutableStateOf<AerialQuality?>(null) }
     val reader = remember { FilmFrames.load(context); FrameReader(context) }
     // Plays as soon as Home shows it, and keys do not stop it (Wallpapers.keepsMoving).
     val play = !releaseForPicker && (moving || hold)
+    val playNow by rememberUpdatedState(play)
     val inSaver by rememberUpdatedState(hold && !moving)
     val playbackScope = rememberCoroutineScope()
     var retryJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var transitionSaveJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val keepNow by rememberUpdatedState(keep)
     val standInNow by rememberUpdatedState(standIn)
     val panelNow by rememberUpdatedState(panel)
@@ -215,8 +226,34 @@ fun LiveWallpaper(
     // 2026-10-29), 1-3 s each time on TCL MT5879 (issue #1238); now the frame is decoded behind the
     // app (catchUp), and where it is not in time the film goes on from the picture (goOnFromPicture).
     var pictureStale by remember { mutableStateOf(false) }
+    var parkedForApp by remember { mutableStateOf(false) }
+    var restart by remember { mutableIntStateOf(0) }
+    var firstFrameRetries by remember { mutableIntStateOf(0) }
+    var playbackRequestedAt by remember { mutableStateOf(0L) }
+
+    fun parkForApp() {
+        val p = player ?: return
+        if (parkedForApp && p.playbackState == Player.STATE_IDLE) return
+        retryJob?.cancel(); retryJob = null
+        returnShield?.fallback(Wallpapers.backdrop?.asAndroidBitmap())
+        returnShield?.cover()
+        reader.close()
+        p.currentMediaItem?.mediaId?.let { Wallpapers.leaveLiveFilm(it, p.currentPosition) }
+        live.moved = false
+        live.frameReady = false
+        live.stopped = false
+        p.pause()
+        // STATE_IDLE releases the decoder/read-ahead, retaining only playlist and seek metadata.
+        // No video decoder is held while another app owns the screen.
+        p.stop()
+        showing = false
+        parkedForApp = true
+        Wallpapers.freezeFilmFrost()
+    }
 
     fun release() {
+        transitionSaveJob?.cancel(); transitionSaveJob = null
+        parkedForApp = false
         retryJob?.cancel(); retryJob = null
         returnShield?.fallback(Wallpapers.backdrop?.asAndroidBitmap())
         returnShield?.cover()
@@ -241,6 +278,13 @@ fun LiveWallpaper(
         openedAerialId = Wallpapers.selectedAerialId
         val quality = qualityOverride ?: AerialFormats.forWallpaper(context)
         openedQuality = quality
+        val chosen = AerialSettings.aerialQuality
+        val policyReason = when {
+            chosen == AerialQuality.DolbyVision && quality == AerialQuality.Uhd -> "wallpaper_sdr_only"
+            chosen == AerialQuality.Auto || chosen == quality -> null
+            else -> "decoder_capability"
+        }
+        playback.open(chosen, quality, qualityFallback ?: policyReason)
         val overHttp = Build.VERSION.SDK_INT < Build.VERSION_CODES.N
         // Where it was let go (into an app, or a screensaver's films), else the picture's own
         // moment; then the other films kept (AerialSet), in the order the screensaver plays them.
@@ -252,7 +296,10 @@ fun LiveWallpaper(
         var failures = 0
         var rendered = false
         val openedAt = android.os.SystemClock.elapsedRealtime()
-        return AerialStream.player(context, quality).apply {
+        return AerialStream.player(context, quality, wallpaper = true).apply {
+            // Wallpaper continuity needs a nearby frame, not decoding an entire GOP to an exact
+            // millisecond after every Home press. Screensaver precision is left unchanged.
+            setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
             live.player = this
             addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
                 override fun onDroppedVideoFrames(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) {
@@ -265,6 +312,8 @@ fun LiveWallpaper(
                     )) {
                         DiagLog.i("wallpaper: sustained frame drops at ${quality.key}; retrying 1080p at normal speed")
                         Wallpapers.leaveLiveFilm(currentMediaItem?.mediaId.orEmpty(), currentPosition)
+                        qualityFallback = "sustained_dropped_frames"
+                        playback.fallback(qualityFallback!!)
                         qualityOverride = AerialQuality.Hd
                     }
                 }
@@ -276,12 +325,26 @@ fun LiveWallpaper(
             addListener(object : Player.Listener {
                 override fun onRenderedFirstFrame() {
                     if (player !== this@apply) return
+                    playback.frame(this@apply, films)
                     failures = 0
+                    firstFrameRetries = 0
                     live.frameReady = true
                     rendered = true
                     live.moved = true
                     showing = isPlaying
+                    if (playbackRequestedAt > 0L) {
+                        DiagLog.i("wallpaper film first frame in ${android.os.SystemClock.elapsedRealtime() - playbackRequestedAt} ms")
+                        playbackRequestedAt = 0L
+                    }
                     returnShield?.renderedFrame()
+                }
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (player === this@apply && playbackState == Player.STATE_IDLE) {
+                        rendered = false
+                        live.frameReady = false
+                        showing = false
+                    }
                 }
 
                 override fun onSurfaceSizeChanged(width: Int, height: Int) {
@@ -291,6 +354,7 @@ fun LiveWallpaper(
                 }
 
                 override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                    if (player !== this@apply) return
                     surface?.let { fillTexture(it, videoSize) }
                 }
 
@@ -310,6 +374,13 @@ fun LiveWallpaper(
                     DiagLog.i("wallpaper film failed (${error.errorCodeName})")
                     // Behind an app or another screensaver the decoder is theirs: no retry.
                     if (!keepNow) return
+                    if (quality == AerialQuality.Uhd && (aerialDecoderError(error.errorCode) || failures >= 1)) {
+                        currentMediaItem?.mediaId?.let { Wallpapers.leaveLiveFilm(it, currentPosition) }
+                        qualityFallback = error.errorCodeName
+                        playback.fallback(error.errorCodeName)
+                        qualityOverride = AerialQuality.Hd
+                        return
+                    }
                     // The same film again, from where it was: going on to the next one on any error
                     // left the screensaver on another film (TCL MT5879, DECODING_FAILED three times
                     // in a minute). The next one only after three; after six Apple's host is out
@@ -347,6 +418,10 @@ fun LiveWallpaper(
      * the film playing from the picture's moment hides the picture changing beneath it.
      */
     suspend fun catchUp(left: Pair<String, Long>, underFilm: Boolean = false, inApp: Boolean = true, clearsStale: Boolean = false): Boolean {
+        if (Wallpapers.livePictureSpot() == left) {
+            if (clearsStale) pictureStale = false
+            return true
+        }
         // Said, for a TV that reads no frame at all: Sony BRAVIA UR2 (MT5893, Android 9, issue
         // #941) came back to a picture a minute before the film, and its log had no line of why.
         // Where the media server may not read the file (fileFramesShut), the key frame is read
@@ -462,10 +537,10 @@ fun LiveWallpaper(
         val film = p.currentMediaItem?.mediaId ?: return
         val at = p.currentPosition
         val started = android.os.SystemClock.elapsedRealtime()
-        val frame = withTimeoutOrNull(LEAVE_FRAME_MS) {
-            surface?.let { capture(it) }
-                ?: reader.frame(film, at, Wallpapers.screenW, Wallpapers.screenH, exact = false, nearest = true)
-        }
+        // Do not download/decode another copy of the file on the visible leave path. The
+        // TextureView already owns the exact frame; take one small transition copy only.
+        val frame = surface?.let { captureTransition(it) }
+        if (player !== p || keepNow) { frame?.recycle(); return }
         if (frame == null) {
             // The picture as it was, of an earlier moment, rather than black; it catches up behind
             // the app (LaunchedEffect(keep)).
@@ -476,11 +551,16 @@ fun LiveWallpaper(
         }
         // Shown, then the decoder goes; kept and frosted after (1.4 s on MiTV-MFTR0).
         Wallpapers.showLiveFrame(frame)
+        returnShield?.fallback(frame)
+        returnShield?.cover()
         cover.snapTo(0f)
         p.stop()
         DiagLog.i("wallpaper left on its frame in ${android.os.SystemClock.elapsedRealtime() - started} ms")
-        Wallpapers.useLiveFrame(frame, film, at) {
-            player === p && p.currentMediaItem?.mediaId == film && !keepNow
+        transitionSaveJob?.cancel()
+        transitionSaveJob = playbackScope.launch {
+            Wallpapers.useLiveFrame(frame, film, at) {
+                player === p && p.currentMediaItem?.mediaId == film && !keepNow
+            }
         }
     }
 
@@ -496,6 +576,7 @@ fun LiveWallpaper(
         val id = live.film?.id ?: return@LaunchedEffect
         if (!play || !showing || sampledGlassFilm == id) return@LaunchedEffect
         delay(1_500)
+        snapshotFlow { gridSettledNow() }.first { it }
         val p = player ?: return@LaunchedEffect
         val at = p.currentPosition
         val frame = surface?.takeIf { it.isAvailable && !FilmFrames.copyCrashed }?.let { copyGlass(it) }
@@ -524,12 +605,12 @@ fun LiveWallpaper(
         // ON_STOP may be the last callback before Compose's frame clock is suspended.
         // HomeBackground uses frameReady, so dropping the surface exposes its still image, not black.
         player?.pause()
-        release()
+        if (!otherFormatNow && !AerialStart.running) parkForApp() else release()
         scope.launch { cover.snapTo(0f) }
         true
     }
 
-    LaunchedEffect(play, stops, Wallpapers.selectedAerialId, retainPaused, qualityOverride, AerialSettings.aerialQuality, releaseForPicker) {
+    LaunchedEffect(play, stops, keep, restart, Wallpapers.selectedAerialId, retainPaused, qualityOverride, AerialSettings.aerialQuality, releaseForPicker) {
         if (releaseForPicker) { release(); cover.snapTo(0f); return@LaunchedEffect }
         if (player != null && (openedAerialId != Wallpapers.selectedAerialId || openedQuality != (qualityOverride ?: AerialFormats.forWallpaper(context)))) {
             release()
@@ -537,21 +618,39 @@ fun LiveWallpaper(
         }
         live.stopped = false
         if (play) {
+            transitionSaveJob?.cancel(); transitionSaveJob = null
             // Let go past its picture (into an app, or a screensaver of its own), it goes on from
             // where it was let go: the same film, not the one the picture came from, which could be
             // any film from the last stop on the grid (owner, 2026-10-29). The picture caught up to
             // that moment behind the app (LaunchedEffect(keep)); if it has not yet, it does under
             // the moving film. Catching up first held Home still for about 3 s (Xiaomi MiTV-MFTR0).
             if (player == null) goOnFromPicture()
-            if (player == null) FilmAfterInput.await()
+            if (player == null || player?.playbackState == Player.STATE_IDLE) FilmAfterInput.await()
+            if (!live.frameReady) playbackRequestedAt = android.os.SystemClock.elapsedRealtime()
             val p = player ?: open().also { player = it }
+            parkedForApp = false
             DiagLog.i("wallpaper film starts (state ${p.playbackState}, ${p.currentMediaItem?.mediaId} at ${p.currentPosition} ms)")
             // It moves on from the frame the picture is: that picture's glass until the first sample.
             // Keep the last valid glass until the next sample is ready; no fallback colour flash.
             // Its decoder was let go for the screensaver (LiveFilm.letDecoderGo).
             if (p.playbackState == Player.STATE_IDLE) p.prepare()
             p.playWhenReady = true
-            snapshotFlow { live.frameReady }.first { it }
+            if (withTimeoutOrNull(8_000) { snapshotFlow { live.frameReady }.first { it } } == null) {
+                DiagLog.i("wallpaper film: no first frame after 8 s")
+                if (keepNow && playNow && openedQuality == AerialQuality.Uhd) {
+                    p.currentMediaItem?.mediaId?.let { Wallpapers.leaveLiveFilm(it, p.currentPosition) }
+                    qualityFallback = "first_frame_timeout"
+                    playback.fallback("first_frame_timeout")
+                    qualityOverride = AerialQuality.Hd
+                } else if (keepNow && playNow && firstFrameRetries < 2) {
+                    firstFrameRetries++
+                    release()
+                    cover.snapTo(0f)
+                    delay(800)
+                    restart++
+                }
+                return@LaunchedEffect
+            }
             DiagLog.i("wallpaper film first frame ready")
             cover.snapTo(1f)
             // Never decode a second copy from the network beside the playing video.
@@ -567,7 +666,7 @@ fun LiveWallpaper(
                 // that frame becomes the picture first, within LEAVE_FRAME_MS: the decoder is held,
                 // paused, that much longer. Not into a screensaver of its own, which needs it at once.
                 if (cover.value > 0f && !otherFormatNow && !AerialStart.running) leaveOnPicture(p)
-                release()
+                if (!otherFormatNow && !AerialStart.running) parkForApp() else release()
                 return@LaunchedEffect
             }
             p.pause()
@@ -589,10 +688,12 @@ fun LiveWallpaper(
                 // apart look alike, while the glass of another shot showed in the grid until this
                 // one was decoded, 0.5-3 s (Xiaomi MiTV-MFTR0, issue #727).
                 glassSample?.takeIf { it.film == film && abs(it.atMs - at) <= SAME_SHOT_MS }?.let {
-                    Wallpapers.useLiveFrost(it.frame)
+                    Wallpapers.useLiveFrost(it.frame, film)
                     glassReady(live)
                 }
                 glassSample = null
+                delay(PANEL_IN_MS)
+                snapshotFlow { gridSettledNow() }.first { it }
                 var frame = surface?.let { capture(it) }
                 if (frame == null && film != null) {
                     // Stopped by a panel opening: decoded once the panel is in. Read from Apple and
@@ -602,7 +703,7 @@ fun LiveWallpaper(
                     // nothing waits on it there; the grid's glass does, and the grid has no wait.
                     if (panelNow) delay(PANEL_IN_MS)
                     if (!live.stopped) reader.frame(film, at, 320, 180, exact = false)?.let {
-                        Wallpapers.useLiveFrost(it)
+                        Wallpapers.useLiveFrost(it, film)
                         glassReady(live)
                     }
                     // The exact frame is decoded from the key frame before it, reading that whole
@@ -665,7 +766,7 @@ fun LiveWallpaper(
     // A stopped player still holds its decoder, and some TVs have only one video path: on Xiaomi
     // MiTV-MFTR0 the screensaver's decoder lost its resources and its films failed while it was held.
     LaunchedEffect(keep) {
-        if (!keep && !play && player != null && cover.value == 0f) release()
+        if (!keep && !play && player != null && !parkedForApp && cover.value == 0f) release()
         if (!keep && otherFormatNow) {
             fresh = true
             blackForFilm = true
@@ -701,13 +802,22 @@ fun LiveWallpaper(
             // in; not under a screensaver of aerials, which moves the spot on every second.
             delay(BEHIND_CATCH_UP_MS)
             val left = Wallpapers.leftLiveSpot()
-            if (!keepNow && !otherFormatNow && !AerialStart.running && player == null && left != null) {
+            if (!keepNow && !otherFormatNow && !AerialStart.running && (player == null || parkedForApp) && left != null) {
                 catchUp(left, underFilm = true, clearsStale = true)
-                if (player == null) reader.close()
+                if (player == null || parkedForApp) reader.close()
             }
         }
     }
-    DisposableEffect(Unit) { onDispose { release() } }
+    LaunchedEffect(keep, parkedForApp) {
+        if (!keep && parkedForApp) {
+            delay(60_000)
+            if (!keepNow && parkedForApp) release()
+        }
+    }
+    DisposableEffect(live) {
+        live.handoff = { parkForApp() }
+        onDispose { live.handoff = null; release() }
+    }
 
     // Online wallpaper is SDR. Compose it through a TextureView rather than a vendor overlay
     // plane: several TV compositors reuse the gallery preview's small crop on SurfaceView.
@@ -742,11 +852,18 @@ fun LiveWallpaper(
 private suspend fun capture(view: SurfaceView): Bitmap? {
     // The same TV gives the same answer: where it fails, later stops go straight to the film's
     // file; where it works, the file is not needed at all.
-    return captureOnce(view).also { pixelCopy = it != null && !copySlow }
+    return captureOnce(view)
 }
 
 /** A moving wallpaper's current frame where this TV lets PixelCopy read its video plane; else null. */
-internal suspend fun copyFrame(view: SurfaceView): Bitmap? = if (pixelCopy == false) null else capture(view)
+internal suspend fun copyFrame(view: SurfaceView): Bitmap? = if (copySlow) null else capture(view)
+
+/** Only a transition still: avoid allocating/copying a full 4K buffer while another app starts. */
+internal suspend fun copyWallpaperTransition(view: SurfaceView): Bitmap? {
+    if (copySlow) return null
+    val scale = minOf(1f, 640f / view.width.coerceAtLeast(1), 360f / view.height.coerceAtLeast(1))
+    return captureOnce(view, (view.width * scale).toInt().coerceAtLeast(1), (view.height * scale).toInt().coerceAtLeast(1))
+}
 
 /** A single small poster attempt, even on devices where repeated glass sampling is too slow. */
 internal suspend fun copyVideoPoster(view: SurfaceView): Bitmap? = captureOnce(view, 384, 216)
@@ -756,18 +873,11 @@ internal suspend fun copyVideoPoster(view: SurfaceView): Bitmap? = captureOnce(v
  * unreadable copies in a row settle that it does not, not one: a night film can read as black.
  */
 internal suspend fun copyGlass(view: SurfaceView): Bitmap? {
-    if (pixelCopy == false) return null
-    val frame = captureOnce(view, 320, 180)
-    if (frame != null) pixelCopy = !copySlow
-    else if (++glassMisses >= 3 && pixelCopy == null) pixelCopy = false
-    if (frame != null) glassMisses = 0
-    return frame
+    return captureOnce(view, 320, 180)
 }
 
-private var glassMisses = 0
-
 /** Whether [copyGlass] may still read the film here: not where PixelCopy has been found not to. */
-internal val copyGlassPossible: Boolean get() = pixelCopy != false
+internal val copyGlassPossible: Boolean get() = !copySlow && !FilmFrames.copyCrashed && surfaceCopyHealth.canTry(android.os.SystemClock.elapsedRealtime())
 
 /** Whether PixelCopy read the film green here: the video plane loses its colour when composited. */
 private var copyLostColour = false
@@ -818,6 +928,8 @@ private const val PANEL_IN_MS = 450L
 
 /** Whether PixelCopy read the film in this process; null until it has been tried. */
 private var pixelCopy: Boolean? = null
+private var surfaceCopyHealth = SurfaceCopyHealth()
+private var copyingSurface = java.lang.ref.WeakReference<SurfaceView>(null)
 
 /**
  * Whether reading frames from a film's file can jam the media server here: TCL's own MP4 extractor
@@ -926,6 +1038,7 @@ internal suspend fun sampleGlass(
     player: () -> ExoPlayer?,
     canTake: () -> Boolean = { true },
     every: () -> Long = { GLASS_EVERY_MS },
+    awaitCapture: suspend () -> Unit = {},
     take: suspend (atMs: Long) -> Bitmap?,
 ) {
     // The first soon, for a film stopped moments after it moved.
@@ -939,6 +1052,7 @@ internal suspend fun sampleGlass(
             waited += 250
         }
         wait = Long.MAX_VALUE
+        awaitCapture()
         val p = player() ?: return
         val before = droppedFrames(p)
         val mediaId = p.currentMediaItem?.mediaId
@@ -956,7 +1070,7 @@ internal suspend fun sampleGlass(
             glassCostly = true
             break
         }
-        frame?.let { Wallpapers.useFilmFrost(it) }
+        frame?.let { Wallpapers.useFilmFrost(it, mediaId) }
     }
     if (wait == 800L) delay(wait)
     Wallpapers.useStillFilmFrost()
@@ -984,16 +1098,48 @@ private fun fillTexture(view: TextureView, video: androidx.media3.common.VideoSi
     view.setTransform(Matrix().apply { setScale(x, y, view.width / 2f, view.height / 2f) })
 }
 
+/** A bounded-size copy on a transition only. Disable further copies if the GPU stalls. */
+private var transitionCopySlow = false
+private suspend fun captureTransition(view: TextureView): Bitmap? {
+    if (transitionCopySlow || FilmFrames.copyCrashed || !view.isAvailable) return null
+    val started = android.os.SystemClock.elapsedRealtime()
+    val scale = minOf(1f, 640f / view.width.coerceAtLeast(1), 360f / view.height.coerceAtLeast(1))
+    val frame = captureOnce(view, (view.width * scale).toInt().coerceAtLeast(1), (view.height * scale).toInt().coerceAtLeast(1))
+    if (android.os.SystemClock.elapsedRealtime() - started > COPY_SLOW_MS) transitionCopySlow = true
+    return frame
+}
+
 /** A texture is part of Home's UI, so a vendor video-plane crop cannot shrink it. */
 private suspend fun capture(view: TextureView): Bitmap? = captureOnce(view)
 
-private suspend fun copyGlass(view: TextureView): Bitmap? = captureOnce(view, 320, 180)
+internal suspend fun copyGlass(view: TextureView): Bitmap? = captureOnce(view, 320, 180)
+
+internal suspend fun copyFrame(view: android.view.View): Bitmap? = when (view) {
+    is TextureView -> capture(view)
+    is SurfaceView -> copyFrame(view)
+    else -> null
+}
+internal suspend fun copyWallpaperTransition(view: android.view.View): Bitmap? = when (view) {
+    is TextureView -> captureTransition(view)
+    is SurfaceView -> copyWallpaperTransition(view)
+    else -> null
+}
+internal suspend fun copyVideoPoster(view: android.view.View): Bitmap? = when (view) {
+    is TextureView -> captureOnce(view, 384, 216)
+    is SurfaceView -> copyVideoPoster(view)
+    else -> null
+}
+internal suspend fun copyGlass(view: android.view.View): Bitmap? = when (view) {
+    is TextureView -> copyGlass(view)
+    is SurfaceView -> copyGlass(view)
+    else -> null
+}
 
 private suspend fun captureOnce(view: TextureView, w: Int = 0, h: Int = 0): Bitmap? {
     if (!view.isAvailable || view.width <= 0 || view.height <= 0) return null
     FilmFrames.load(view.context)
     if (FilmFrames.copyCrashed) return null
-    val factor = minOf(1f, 1920f / view.width, 1080f / view.height)
+    val factor = minOf(1f, 960f / view.width, 540f / view.height)
     val width = if (w > 0) w else (view.width * factor).toInt().coerceAtLeast(1)
     val height = if (h > 0) h else (view.height * factor).toInt().coerceAtLeast(1)
     val frame = withContext(Dispatchers.IO) {
@@ -1010,6 +1156,13 @@ private suspend fun captureOnce(view: SurfaceView, w: Int = view.width, h: Int =
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || view.width <= 0 || !view.holder.surface.isValid) return null
     FilmFrames.load(view.context)
     if (FilmFrames.copyCrashed) { pixelCopy = false; return null }
+    if (copyingSurface.get() !== view) {
+        copyingSurface = java.lang.ref.WeakReference(view)
+        surfaceCopyHealth = SurfaceCopyHealth()
+        pixelCopy = null
+    }
+    val health = surfaceCopyHealth
+    if (!health.canTry(android.os.SystemClock.elapsedRealtime())) return null
     val surface = view.holder.surface
     if (w <= 0 || h <= 0) return null
     val bitmap = createBitmap(w, h)
@@ -1039,8 +1192,15 @@ private suspend fun captureOnce(view: SurfaceView, w: Int = view.width, h: Int =
         // goes without the film's frames (Wallpapers.filmGlassless).
         val took = android.os.SystemClock.elapsedRealtime() - started
         val unread = if (result == PixelCopy.SUCCESS) unreadable(bitmap) else null
-        // Only a copy that read the film counts as slow. One that came back black is not used again
-        // anyway (pixelCopy), and the TV takes its frames from the file; counted, a slow black copy
+        // Every caller shares the same result, including poster and transition captures. A
+        // prior successful copy must not prevent later consecutive black copies from backing
+        // off. Scope the decision to this Surface and allow a later retry; night scenes exist.
+        if (copyingSurface.get() === view && surfaceCopyHealth === health) {
+            health.result(result == PixelCopy.SUCCESS && unread == null, android.os.SystemClock.elapsedRealtime())
+            pixelCopy = health.readable
+        }
+        // Only a copy that read the film counts as slow. Consecutive black copies back off and
+        // let the file/poster take over; counted as slow, a black copy
         // shut the file out too, for good, and the plate lost its frosted glass (Xiaomi MiTV-MFTR0,
         // whose copies read black: `copy false` with no copy tried, 2026-11-01).
         if (result == PixelCopy.SUCCESS && unread == null && took > COPY_SLOW_MS) {

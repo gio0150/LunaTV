@@ -25,6 +25,7 @@
     <string name="cc_home_not_default">尚未设为默认桌面</string>
     <string name="cc_setup_title">设为主屏幕</string>
     <string name="cc_setup_body">只装了 APK 时，Luna TV 能打开，但按主页键、开机和待机后还是原来的桌面。</string>
+    <string name="cc_volume_external">由音响控制</string>
     <string name="cc_setup_guard">打开桌面守护</string>
     <string name="cc_setup_guard_where">无障碍</string>
     <string name="cc_setup_home">选择默认桌面</string>
@@ -145,7 +146,8 @@
     <string name="st_names">App 名称</string>
     <string name="st_names_focused">只显示选中的</string>
     <string name="st_names_all">全部显示</string>
-    <string name="st_names_hint">每个 App 下面都显示名称，或者像 Apple TV 一样只显示选中的。全部显示时，第一排的名称也显示在玻璃底板里。</string>
+    <string name="st_names_hint">只显示选中：在选中的图标下方显示名称。全部显示：每个图标下方都显示名称。大标题：在 Dock 上方左侧显示选中应用的名称。</string>
+    <string name="st_names_title">大标题</string>
     <string name="ss_kind">类型</string>
     <string name="wp_weather_city">位置</string>
     <string name="st_home_standard">双排</string>
@@ -289,6 +291,11 @@
     <string name="cc_about_attribution">Luna TV 基于 Aerial 开源项目二次开发，非 Aerial 官方版本。</string>
     <string name="donate_thanks">感谢您的打赏</string>
     <string name="donate_body">感谢您的打赏，让我做得更好。微信或支付宝扫码支持。</string>
+    <string name="donate_title">打赏/联系作者</string>
+    <string name="donate_open">查看</string>
+    <string name="donate_subtitle">请维护者喝杯咖啡</string>
+    <string name="donate_description">感谢你喜欢 Luna TV。你的支持将帮助我持续优化和维护。</string>
+    <string name="donate_hint">自愿支持，金额随心，不影响任何功能使用。</string>
     <string name="donate_wechat">微信</string>
     <string name="donate_alipay">支付宝</string>
     <string name="donate_close">关闭</string>
@@ -665,6 +672,11 @@ Aerial 原项目及其名称、代码和许可归原作者及各自权利人所�
     <string name="quiz_score">答对 %1$d / %2$d 题</string>
     <string name="quiz_back_to_questions">返回答题</string>
     <string name="halo_dock_corners">圆角样式</string>
+    <string name="halo_dock_size">Dock 与图标大小</string>
+    <string name="halo_dock_size_hint">Dock 底板与应用图标一起缩放，默认保持当前大小。</string>
+    <string name="halo_dock_size_small">小</string>
+    <string name="halo_dock_size_default">默认</string>
+    <string name="halo_dock_size_large">大</string>
     <string name="halo_dock_corners_round">大圆弧</string>
     <string name="halo_dock_corners_compact">小圆弧</string>
     <string name="quiz_parent_allowance_hint">请家长在下方选择继续观看的时长，或退出儿童模式。</string>
@@ -700,4 +712,29 @@ Aerial 原项目及其名称、代码和许可归原作者及各自权利人所�
     <string name="focus_liquid_slide_hint">高亮随焦点滑向选中的应用。</string>
     <string name="focus_classic_glass_slide_hint">玻璃高亮随焦点滑向选中的应用。</string>
     <string name="aerial_quality_shared_hint">与航拍屏保共用；选择杜比视界时，壁纸仍使用 SDR。</string>
+
+    <!-- User-initiated guard permission setup. -->
+    <string name="halo_setup_activate">一键开启与修复守护</string>
+    <string name="halo_setup_working">正在检查与恢复…</string>
+    <string name="halo_setup_scope">自动开启恢复策略，修复已获授权的守护与通知连接；其他权限需在系统页面确认。保留其他应用及其权限。</string>
+    <string name="halo_setup_next">继续授权：%1$s</string>
+    <string name="halo_setup_review">请检查下方实际状态。未完成的权限需通过电视系统或电脑配置；授权后返回此页会重新检查。</string>
+    <string name="halo_setup_no_entry">此电视未提供可打开的权限页面，请在系统设置中查找，或使用下方电脑配置指南。</string>
+    <string name="halo_setup_allowed">已允许</string>
+    <string name="halo_setup_pending">等待授权</string>
+    <string name="halo_setup_unknown">无法读取</string>
+    <string name="halo_setup_connected">已连接</string>
+    <string name="halo_setup_waiting_bind">已允许·未连接</string>
+    <string name="halo_setup_unsupported">此系统不支持</string>
+    <string name="halo_setup_manual">需在系统确认</string>
+    <string name="halo_setup_overlay">后台拉起 / 悬浮窗</string>
+    <string name="halo_setup_usage">使用情况访问权限</string>
+    <string name="halo_setup_battery">允许后台运行 / 电池优化</string>
+    <string name="halo_setup_autostart">厂商自启动 / 关联启动</string>
+    <string name="halo_setup_vendor_hint">在系统应用管理中，允许 Luna TV 自启动、关联启动和后台运行。不同电视入口不同，打开此页面不代表已授权。</string>
+    <string name="halo_setup_listener_hint">通知使用权用于待机后的守护恢复，不读取通知内容。部分低内存系统无法连接此服务。</string>
+    <string name="halo_setup_lite_body">Lite 通过系统默认桌面接管主页，不包含完整版的桌面守护服务。请将 Luna TV Lite 设为默认桌面，并在系统中允许自启动及后台运行。</string>
+    <string name="halo_setup_app_details">打开系统应用管理</string>
+    <string name="halo_setup_secure_hint">自动修复需要先由电脑授权。仅打开恢复开关，无法获得系统安全设置权限。</string>
+    <string name="a11y_delete">删除</string>
 </resources>

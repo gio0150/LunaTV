@@ -21,6 +21,7 @@
     <string name="cc_home_not_default">Не головний екран за замовчуванням</string>
     <string name="cc_setup_title">Зробіть Luna TV головним екраном</string>
     <string name="cc_setup_body">Якщо Luna TV встановлено лише з APK, він відкривається, але кнопка «Додому», вмикання та вихід зі сну досі ведуть до попереднього лаунчера.</string>
+    <string name="cc_volume_external">На аудіосистемі</string>
     <string name="cc_setup_guard">Увімкнути Home Guard</string>
     <string name="cc_setup_guard_where">Спеціальні можливості</string>
     <string name="cc_setup_home">Вибрати застосунок головного екрана за замовчуванням</string>
@@ -140,7 +141,8 @@
     <string name="st_names">Назви застосунків</string>
     <string name="st_names_focused">Вибраний застосунок</string>
     <string name="st_names_all">Усі застосунки</string>
-    <string name="st_names_hint">Назви під кожним застосунком або лише під вибраним, як на Apple TV.</string>
+    <string name="st_names_hint">Вибране: назва під вибраною піктограмою. Усі: назви під усіма піктограмами. Великий заголовок: назва вибраного застосунку ліворуч над Dock.</string>
+    <string name="st_names_title">Великий заголовок</string>
     <string name="ss_kind">Вигляд</string>
     <string name="wp_weather_city">Місцезнаходження</string>
     <string name="st_home_standard">Два ряди</string>
@@ -282,6 +284,13 @@
     <string name="st_refresh_60">60 Гц</string>
     <string name="st_refresh_120">120 Гц</string>
     <string name="cc_about_attribution">Luna TV — неофіційна модифікація проєкту Aerial з відкритим кодом.</string>
+    <string name="donate_title">Підтримати Luna TV</string>
+    <string name="donate_open">Відкрити</string>
+    <string name="donate_subtitle">Підтримайте розробника Luna TV</string>
+    <string name="donate_description">Дякуємо, що користуєтеся Luna TV. Ваша підтримка допомагає розвитку.</string>
+    <string name="donate_hint">Підтримка добровільна, сума довільна. Усі функції безкоштовні.</string>
+    <string name="donate_wechat">WeChat Pay</string>
+    <string name="donate_alipay">Alipay</string>
     <string name="donate_close">Закрити</string>
     <string name="guard_consent_description">Home Guard використовує спеціальні можливості для кнопки Home та може повертати Luna TV. За наявності дозволів служба може відновлюватись після перезапуску. Вимкніть її тут; домашній екран обирається в системних налаштуваннях.</string>
     <string name="guard_agree_enable">Погодитися та налаштувати Home Guard</string>
@@ -604,6 +613,11 @@ WeChat: scan code  ·  Email: 1227888560@qq.com</string>
     <string name="quiz_score">Правильних відповідей: %1$d з %2$d</string>
     <string name="quiz_back_to_questions">Повернутися до вікторини</string>
     <string name="halo_dock_corners">Стиль кутів</string>
+    <string name="halo_dock_size">Розмір Dock і значків</string>
+    <string name="halo_dock_size_hint">Dock і значки змінюють розмір разом. Типовий варіант зберігає поточний розмір.</string>
+    <string name="halo_dock_size_small">Малий</string>
+    <string name="halo_dock_size_default">Типовий</string>
+    <string name="halo_dock_size_large">Великий</string>
     <string name="halo_dock_corners_round">Великий радіус</string>
     <string name="halo_dock_corners_compact">Малий радіус</string>
     <string name="quiz_parent_allowance_hint">Батьки можуть додати час перегляду нижче або вийти з дитячого режиму.</string>
@@ -643,4 +657,29 @@ WeChat: scan code  ·  Email: 1227888560@qq.com</string>
     <string name="focus_liquid_slide_hint">Підсвічування плавно переходить до вибраного застосунку.</string>
     <string name="focus_classic_glass_slide_hint">Скляне підсвічування плавно переходить до вибраного застосунку.</string>
     <string name="aerial_quality_shared_hint">Спільне із заставкою аерозйомки. Шпалери використовують SDR навіть за вибору Dolby Vision.</string>
+
+    <!-- User-initiated guard permission setup. -->
+    <string name="halo_setup_activate">Увімкнути й відновити захист</string>
+    <string name="halo_setup_working">Перевірка й відновлення…</string>
+    <string name="halo_setup_scope">Вмикає відновлення й виправляє вже дозволений доступ. Решту дозволів підтвердьте в системі. Інші застосунки не змінюються.</string>
+    <string name="halo_setup_next">Наступний дозвіл: %1$s</string>
+    <string name="halo_setup_review">Перевірте стани нижче. Недоступні дозволи налаштуйте через систему ТВ або комп’ютер. Потім поверніться для перевірки.</string>
+    <string name="halo_setup_no_entry">На ТВ немає доступної сторінки дозволу. Скористайтеся системними налаштуваннями чи інструкцією для комп’ютера.</string>
+    <string name="halo_setup_allowed">Дозволено</string>
+    <string name="halo_setup_pending">Потрібен дозвіл</string>
+    <string name="halo_setup_unknown">Не вдалося прочитати</string>
+    <string name="halo_setup_connected">Підключено</string>
+    <string name="halo_setup_waiting_bind">Дозволено · немає зв’язку</string>
+    <string name="halo_setup_unsupported">Недоступно в системі</string>
+    <string name="halo_setup_manual">Перевірте в системі</string>
+    <string name="halo_setup_overlay">Поверх інших застосунків</string>
+    <string name="halo_setup_usage">Доступ до статистики</string>
+    <string name="halo_setup_battery">Робота у фоні</string>
+    <string name="halo_setup_autostart">Автозапуск виробника</string>
+    <string name="halo_setup_vendor_hint">У керуванні застосунками дозвольте Luna TV автозапуск, запуск іншими застосунками й роботу у фоні. Відкриття сторінки не надає дозвіл.</string>
+    <string name="halo_setup_listener_hint">Доступ до сповіщень допомагає відновити захист після очікування; вміст не читається. На деяких системах із малою пам’яттю служба недоступна.</string>
+    <string name="halo_setup_lite_body">Lite використовує системний вибір домашнього екрана й не містить служби захисту повної версії. Виберіть Luna TV Lite та дозвольте автозапуск і роботу у фоні.</string>
+    <string name="halo_setup_app_details">Керування застосунком</string>
+    <string name="halo_setup_secure_hint">Для автовідновлення потрібен дозвіл через комп’ютер. Сам перемикач не надає доступу до захищених налаштувань.</string>
+    <string name="a11y_delete">Видалити</string>
 </resources>

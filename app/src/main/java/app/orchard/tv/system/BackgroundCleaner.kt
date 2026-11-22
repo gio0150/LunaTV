@@ -45,7 +45,7 @@ object BackgroundCleaner {
                 }
             }.getOrDefault(false)
             val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            // Manual cleanup follows HaloTV 2.1.4: ask Android about user apps individually.
+            // Manual cleanup follows Luna TV 2.1.4: ask Android about user apps individually.
             // A vendor may report music active forever, or return null capabilities for an idle
             // transport. Neither should block the whole manual request. VPN/service packages
             // are still excluded below. Idle automation remains deliberately conservative.

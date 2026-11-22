@@ -7,7 +7,6 @@ import android.util.Log
 import app.orchard.tv.BuildConfig
 import app.orchard.tv.MainActivity
 import app.orchard.tv.guard.GuardSetup
-import app.orchard.tv.migration.MigrationTransfer
 import app.orchard.tv.system.BootOpen
 
 /** A confirmed self-update returns to Home, not the app/input uncovered when Android kills us. */
@@ -75,14 +74,13 @@ internal object UpdateReturn {
     }
 
     fun returnHome(context: Context) {
-        if (MigrationTransfer.handedOff(context)) return
         // Never wake a sleeping TV for an update. The next Home start consumes the marker instead.
         if (!GuardSetup.isUserUnlocked(context)) return
         if ((context.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive == false) return
         if (!claim(context)) return
         runCatching {
             val home = MainActivity.bringBackIntent(context)
-            if (!MigrationTransfer.handedOff(context)) context.startActivity(home)
+            context.startActivity(home)
         }
             .onFailure { Log.w("HaloUpdate", "Updated; Home will resume when the TV permits it", it) }
     }

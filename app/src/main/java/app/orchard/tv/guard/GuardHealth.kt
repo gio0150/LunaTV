@@ -2,13 +2,13 @@ package app.orchard.tv.guard
 
 import android.Manifest
 import android.app.AppOpsManager
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 
 /** An on-demand snapshot, not a new background poller or a permission grant. */
@@ -43,9 +43,20 @@ internal data class GuardHealth(
             val restricted = restrictedSettingsBlocked(context)
             return GuardHealth(HomeGuardService.isRunning, enabled,
                 secure && restricted != true,
-                runCatching { NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName) }.getOrDefault(false),
+                listenerAllowed(context),
                 configured, secure, restricted, otherGuards)
         }
+
+        internal fun listenerAllowed(context: Context): Boolean = runCatching {
+            val component = ComponentName(context, RevivalListener::class.java)
+            if (Build.VERSION.SDK_INT >= 27) {
+                // Since O MR1, the notification service owns approval; a stale secure-settings
+                // string is not sufficient. Query this exact installed component, not its package.
+                (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                    .isNotificationListenerAccessGranted(component)
+            } else Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners").orEmpty()
+                .split(':').any { ComponentName.unflattenFromString(it) == component }
+        }.getOrDefault(false)
 
         private fun restrictedSettingsBlocked(context: Context): Boolean? {
             if (Build.VERSION.SDK_INT < 33) return false

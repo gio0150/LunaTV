@@ -54,11 +54,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import app.orchard.tv.ui.components.smoothBorder
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.animation.core.Animatable
@@ -111,6 +113,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.orchard.tv.R
+import app.orchard.tv.island.IslandClockBounds
+import app.orchard.tv.island.IslandClockPart
 import app.orchard.tv.settings.AerialSettings
 import app.orchard.tv.settings.ClockHours
 import app.orchard.tv.wallpaper.Images
@@ -293,6 +297,7 @@ fun HomeBackground(
     glassAwaitsStop: Boolean = false,
     /** The grid's own glass, where it is not the picture's ([frosted]): the aerial film's (Wallpapers.clipGlass). */
     gridGlass: ImageBitmap? = null,
+    onVideoDockTint: ((State<Color>?) -> Unit)? = null,
 ) {
     val shade = remember { Images.homeShade.asImageBitmap() }
     Box(Modifier.fillMaxSize()) {
@@ -315,15 +320,30 @@ fun HomeBackground(
             if (a > 0.01f) drawDrawingIn(saverImage, saverPush(), a)
         }
         Box(Modifier.fillMaxSize().diagLayer("plate")) {
-            // Where the film's frames cannot be had (Wallpapers.filmGlassless), the plate is the one
-            // over a still picture, of the picture's glass, over the film moving or stopped: the
-            // picture is the frame decoded where the film was let go, and the film goes on from it
-            // (LiveWallpaper.goOnFromPicture; owner, TCL MT5879, issue #1238).
-            // Its glass follows the film where frames of it are decoded in the app while it moves
-            // ([filmGlass], every 15 s), so it is not the colours of a shot long gone.
-            val still = Wallpapers.filmGlassless && Wallpapers.moves() && (frosted ?: backdrop) != null
-            val film = filmGlass.takeUnless { Wallpapers.filmGlassless }
-            Plate(if (still) filmGlass ?: frosted ?: backdrop else frosted ?: backdrop, film, film != null, Wallpapers.filmGlassless, plate, scroll, collapse, cover, filmStopped, toSaver, lift, still)
+            val movingWallpaper = Wallpapers.moves()
+            if (movingWallpaper && AerialSettings.plateStyle == 1) {
+                VideoLiquidDock(plate, scroll, collapse, lift, toSaver, wallpaper, onVideoDockTint) {
+                    if (AerialSettings.lite) null else {
+                        val inMotion = filmStopped() < .5f
+                        if (!inMotion) frosted ?: gridGlass
+                        else {
+                            val currentVideoGlass = Wallpapers.filmFrost.takeIf { Wallpapers.isVideo() }
+                            currentVideoGlass ?: gridGlass ?: frosted
+                        }
+                    }
+                }
+            } else {
+                // Where the film's frames cannot be had (Wallpapers.filmGlassless), the plate is the one
+                // over a still picture, of the picture's glass, over the film moving or stopped: the
+                // picture is the frame decoded where the film was let go, and the film goes on from it
+                // (LiveWallpaper.goOnFromPicture; owner, TCL MT5879, issue #1238).
+                // Its glass follows the film where frames of it are decoded in the app while it moves
+                // ([filmGlass], every 15 s), so it is not the colours of a shot long gone.
+                val still = Wallpapers.filmGlassless && Wallpapers.moves() && (frosted ?: backdrop) != null
+                val film = filmGlass.takeUnless { Wallpapers.filmGlassless }
+                Plate(if (still) filmGlass ?: frosted ?: backdrop else frosted ?: backdrop, film, film != null,
+                    Wallpapers.filmGlassless, plate, scroll, collapse, cover, filmStopped, toSaver, lift, still)
+            }
         }
     }
 }
@@ -407,6 +427,52 @@ private fun Pictures(
             if (g < 0.01f) return@Canvas
             val src = (if (moving()) moved else null) ?: glass ?: return@Canvas
             drawImage(src, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()), filterQuality = FilterQuality.Low, alpha = g)
+        }
+    }
+}
+
+/** Let the actual video show through; only a very light tint follows ambient colour. */
+@Composable
+private fun VideoLiquidDock(
+    plate: Rect?, scroll: () -> Float, collapse: Float, lift: () -> Float,
+    toSaver: () -> Float, wallpaper: String?, onTint: ((State<Color>?) -> Unit)?, sample: () -> ImageBitmap?,
+) {
+    if (plate == null) return
+    val corner = if (AerialSettings.compactDockCorners) 28.dp else PlateCorner
+    val sampleNow by rememberUpdatedState(sample)
+    val lightweight = AerialSettings.lite || LocalReducedMotion.current
+    var targetTint by remember(wallpaper, lightweight) { mutableStateOf(NEUTRAL_DOCK_TINT) }
+    LaunchedEffect(wallpaper, lightweight) {
+        if (lightweight) return@LaunchedEffect
+        snapshotFlow { sampleNow() }.collectLatest { image ->
+            if (image == null) return@collectLatest
+            // Skip transient sources as a panel or a new film prepares its glass.
+            delay(400L)
+            val target = withContext(Dispatchers.Default) {
+                runCatching { dockTintOf(image.asAndroidBitmap()) }.getOrNull()
+            } ?: return@collectLatest
+            if (dockTintChanged(targetTint, target)) targetTint = target
+        }
+    }
+    val tint = animateColorAsState(Color(targetTint),
+        if (lightweight) snap() else tween(1_800, easing = Motion.EaseOut), label = "video-dock-tint")
+    if (onTint != null) DisposableEffect(tint, onTint) {
+        onTint(tint)
+        onDispose { onTint(null) }
+    }
+    Canvas(Modifier.fillMaxSize()) {
+        val y = scroll()
+        val rest = 1f - smooth((y / (collapse * .55f)).coerceIn(0f, 1f))
+        val alpha = rest * (1f - toSaver())
+        if (alpha < .01f) return@Canvas
+        val r = plate.translate(0f, -y - lift()).inflate(PlateSwell.toPx() * (1f - rest))
+        val radius = corner.toPx()
+        drawRoundRect(tint.value.copy(alpha = VIDEO_DOCK_FILL_ALPHA * alpha), r.topLeft, r.size, CornerRadius(radius))
+        val rule = 1.dp.toPx()
+        val stroke = r.deflate(rule)
+        if (stroke.width > 0f && stroke.height > 0f) {
+            drawRoundRect(Color.White.copy(alpha = .28f * alpha), stroke.topLeft, stroke.size,
+                CornerRadius((radius - rule).coerceAtLeast(0f)), style = Stroke(rule))
         }
     }
 }
@@ -539,7 +605,7 @@ private fun Plate(glass: ImageBitmap?, film: ImageBitmap?, filmPlate: Boolean, d
         val grow = PlateSwell.toPx() * (1f - rest)
         val r = plate.translate(0f, -scroll() - lift()).inflate(grow)
         val t = swap.value
-        val opacity = if (AerialSettings.plateStyle == 1) 0.28f else PLATE_OPACITY
+        val opacity = if (AerialSettings.plateStyle == 1) 0.16f else PLATE_OPACITY
         val below = bottom.takeIf { under != null }
         if (t < 1f) below?.let { drawBaked(it, r, alpha * opacity) }
         top?.let { drawBaked(it, r, (if (below != null) alpha * t else alpha) * opacity) }
@@ -827,13 +893,15 @@ private fun clockInk(): Color = when (AerialSettings.clockTextColor) { 1 -> Colo
 
 /** The owner's Clean Your TV header: light Outfit time beside the date, weather on its own line. */
 @Composable
-fun CleanStyleClock(
+internal fun CleanStyleClock(
     now: LocalDateTime,
     modifier: Modifier = Modifier,
     alignEnd: Boolean = false,
     alignCenter: Boolean = false,
     toSaver: () -> Float = { 0f },
+    islandBounds: IslandClockBounds? = null,
 ) {
+    fun track(part: IslandClockPart) = islandBounds?.run { Modifier.trackIslandClock(part) } ?: Modifier
     val shadow = if (AerialSettings.clockTextColor == 0) Shadow(Color.Black.copy(alpha = 0.34f), Offset(0f, 2f), blurRadius = 12f) else null
     val aside = Modifier.graphicsLayer { alpha = 1f - (toSaver() * 2.5f).coerceIn(0f, 1f) }
     val greeting = when (now.hour) {
@@ -850,7 +918,7 @@ fun CleanStyleClock(
                 fontSize = 13.sp, letterSpacing = 0.22.em,
                 color = clockInk().copy(alpha = 0.78f), shadow = shadow,
             ),
-            modifier = aside,
+            modifier = aside.then(track(IslandClockPart.Greeting)),
         )
         if (AerialSettings.showHomeTime || AerialSettings.showHomeDate) Row(verticalAlignment = Alignment.CenterVertically) {
             if (AerialSettings.showHomeTime) BasicText(
@@ -860,7 +928,7 @@ fun CleanStyleClock(
                     fontSize = 54.sp, lineHeight = 59.sp, letterSpacing = (-0.04).em,
                     color = clockInk(), shadow = shadow,
                 ),
-                modifier = Modifier.alignByBaseline().toSaverClock(toSaver, 54.sp, 13.dp),
+                modifier = Modifier.alignByBaseline().toSaverClock(toSaver, 54.sp, 13.dp).then(track(IslandClockPart.Time)),
             )
             if (AerialSettings.showHomeTime && AerialSettings.showHomeDate) {
                 Spacer(Modifier.width(14.dp))
@@ -875,12 +943,12 @@ fun CleanStyleClock(
                     fontSize = 16.sp, letterSpacing = 0.10.em,
                     color = clockInk().copy(alpha = 0.85f), shadow = shadow,
                 ),
-                modifier = aside.alignByBaseline(),
+                modifier = aside.alignByBaseline().then(track(IslandClockPart.Date)),
             )
         }
-        if (AerialSettings.showHomeDate) LunarDateLine(now, aside, shadow)
+        if (AerialSettings.showHomeDate) LunarDateLine(now, aside.then(track(IslandClockPart.Lunar)), shadow)
         Weather.now?.takeIf { AerialSettings.showWeather }?.let { w ->
-            Row(aside.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(aside.padding(top = 8.dp).then(track(IslandClockPart.Weather)), verticalAlignment = Alignment.CenterVertically) {
                 GlyphIcon(glyphFor(w), clockInk(), 24.dp, Modifier.padding(end = 6.dp))
                 val city = Weather.place?.takeIf { it.isNotBlank() }
                 val range = if (w.high != null && w.low != null) stringResource(R.string.weather_high_low, w.high, w.low) else null
@@ -894,7 +962,7 @@ fun CleanStyleClock(
                 )
             }
         }
-        DeviceCapacity(aside.padding(top = 6.dp), shadow)
+        DeviceCapacity(aside.padding(top = 6.dp).then(track(IslandClockPart.Capacity)), shadow)
     }
 }
 
@@ -1059,6 +1127,8 @@ fun StatusPills(
     onSettingsClick: () -> Unit,
     onWallpaperClick: () -> Unit,
     modifier: Modifier = Modifier,
+    islandUp: () -> FocusRequester = { FocusRequester.Default },
+    islandDown: () -> FocusRequester = { FocusRequester.Default },
 ) {
     var selected by remember { mutableStateOf<Int?>(null) }
     val guard = true
@@ -1084,6 +1154,10 @@ fun StatusPills(
                         .focusProperties {
                             left = requesters.getOrNull(index - 1) ?: FocusRequester.Cancel
                             right = requesters.getOrNull(index + 1) ?: FocusRequester.Cancel
+                            if (requester == settingsFocusRequester) {
+                                up = islandUp()
+                                down = islandDown()
+                            }
                         }
                         .semantics { contentDescription = labels[index] },
                 ) { state ->

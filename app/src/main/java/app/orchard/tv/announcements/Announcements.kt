@@ -1,6 +1,5 @@
 package app.orchard.tv.announcements
 
-import app.orchard.tv.migration.MigrationIdentity
 import app.orchard.tv.BuildConfig
 
 import android.content.Context
@@ -30,9 +29,6 @@ object Announcements {
         if (prefs != null) return
         this.variant = variant; this.version = version; this.code = code
         val p = context.applicationContext.getSharedPreferences("halo_announcements", Context.MODE_PRIVATE)
-        if (MigrationIdentity.bridge && p.getLong("identity_notice_build", 0) != code) {
-            p.edit().putLong("identity_notice_build", code).remove("checked_at").apply()
-        }
         prefs = p
         notices = if (BuildConfig.LUNA_BRAND) emptyList()
         else runCatching { AnnouncementFeed.parse(p.getString("feed", "").orEmpty()) }.getOrDefault(emptyList())
@@ -46,7 +42,8 @@ object Announcements {
         return notices.asSequence().filter { AnnouncementPolicy.applies(it, variant, version, code, now) }
     }
     fun contains(n: RemoteAnnouncement): Boolean = eligible().any { it.key == n.key }
-    fun latest(): RemoteAnnouncement? = eligible().firstOrNull()
+    /** Completed revisions are no longer actionable, including in Control Center. */
+    fun latest(): RemoteAnnouncement? = unread()
     fun unread(): RemoteAnnouncement? = eligible().firstOrNull { prefs?.contains("read:${it.key}") != true }
     fun popup(): RemoteAnnouncement? = eligible().firstOrNull {
         it.important && prefs?.contains("read:${it.key}") != true && it.key !in presented &&

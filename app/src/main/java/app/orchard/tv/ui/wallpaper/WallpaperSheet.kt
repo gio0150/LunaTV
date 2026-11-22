@@ -53,8 +53,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.runtime.SideEffect
+import app.orchard.tv.Overlay
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
@@ -103,6 +104,9 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import app.orchard.tv.R
 import app.orchard.tv.remote.CastControl
+import app.orchard.tv.apps.AppEntry
+import app.orchard.tv.island.IslandPreferences
+import app.orchard.tv.island.IslandSettings
 import app.orchard.tv.settings.AerialSettings
 import app.orchard.tv.settings.ClockHours
 import app.orchard.tv.settings.Restricted
@@ -110,7 +114,6 @@ import app.orchard.tv.settings.RestrictedKind
 import app.orchard.tv.settings.FocusStyle
 import app.orchard.tv.settings.UiSounds
 import app.orchard.tv.settings.Effects
-import app.orchard.tv.settings.HomeRefreshRate
 import app.orchard.tv.system.Sounds
 import app.orchard.tv.ui.components.settingsFrost
 import app.orchard.tv.ui.components.applySettingsFrost
@@ -130,7 +133,6 @@ import app.orchard.tv.wallpaper.AerialQuality
 import app.orchard.tv.wallpaper.Aerials
 import app.orchard.tv.wallpaper.ScreensaverMode
 import app.orchard.tv.system.SystemScreensaver
-import app.orchard.tv.system.DisplayRefreshRate
 import app.orchard.tv.wallpaper.Wallpaper
 import app.orchard.tv.wallpaper.WallpaperKind
 import app.orchard.tv.wallpaper.Wallpapers
@@ -138,7 +140,6 @@ import app.orchard.tv.wallpaper.OnlineRotation
 import app.orchard.tv.wallpaper.BingRotationStatus
 import app.orchard.tv.ui.home.customKidsTime
 import app.orchard.tv.weather.Weather
-import app.orchard.tv.weather.WeatherKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -156,15 +157,16 @@ import kotlin.math.roundToInt
  * The QR code opens the phone page for sending photos and videos.
  */
 @Composable
-fun WallpaperSheet(
+internal fun WallpaperSheet(
     visible: Boolean,
-    wallpaperOnly: Boolean = false,
+    picker: Overlay.WallpaperPicker?,
+    islandPreferences: IslandPreferences,
+    islandApps: () -> List<AppEntry>,
     onDismiss: () -> Unit,
     hiddenCount: Int,
     onHiddenApps: () -> Unit,
     onHomeLock: (on: Boolean) -> Unit,
     onStartScreensaver: () -> Unit,
-    onRefreshRateChanged: () -> Unit,
     onPin: (on: Boolean) -> Unit,
     /** Kids and Elders mode's setup (behind the PIN). */
     onKids: () -> Unit,
@@ -174,10 +176,14 @@ fun WallpaperSheet(
     warm: Boolean = false,
 ) {
     val context = LocalContext.current
-    var wallpaperCategory by remember { mutableStateOf(0) }
+    val presentedPicker = rememberPresentedWallpaperPicker(visible, picker)
+    val wallpaperOnly = presentedPicker != null
+    val localVideos = presentedPicker?.localVideos
+    var wallpaperCategory by remember(presentedPicker) { mutableStateOf(presentedPicker?.initialCategory ?: 0) }
     var settingsCategory by remember { mutableStateOf(0) }
     val remoteFirstFocus = remember { FocusRequester() }
     val remoteSidebarFocus = remember { FocusRequester() }
+    val islandFirstFocus = remember { FocusRequester() }
     var phoneUrl by remember { mutableStateOf<String?>(null) }
     var qr by remember { mutableStateOf<ImageBitmap?>(null) }
     val recentPrefs = remember { context.getSharedPreferences("halo_settings_navigation", android.content.Context.MODE_PRIVATE) }
@@ -185,10 +191,11 @@ fun WallpaperSheet(
     var confirmReset by remember { mutableStateOf(false) }
 
     LaunchedEffect(visible) {
+        if (!visible) confirmReset = false
         if (!visible || wallpaperOnly) return@LaunchedEffect
         snapshotFlow {
             listOf(AerialSettings.oneRowHome, AerialSettings.homeColumns, AerialSettings.peekNextRow,
-                AerialSettings.plateStyle, AerialSettings.compactDockCorners, AerialSettings.showAllNames, AerialSettings.settingsIconPosition,
+                AerialSettings.plateStyle, AerialSettings.compactDockCorners, AerialSettings.dockSize, AerialSettings.appNameStyle, AerialSettings.settingsIconPosition,
                 AerialSettings.settingsIconVisibility, AerialSettings.focusStyle, AerialSettings.clockTextColor,
                 AerialSettings.clockPosition, AerialSettings.clockSizeMode, AerialSettings.clockHours, AerialSettings.showHomeGreeting, AerialSettings.showHomeTime, AerialSettings.showHomeDate, AerialSettings.showLunarDate,
                 AerialSettings.showWeather, AerialSettings.showDeviceCapacity, AerialSettings.uiSounds, AerialSettings.effects)
@@ -197,7 +204,7 @@ fun WallpaperSheet(
             recentPrefs.edit().putInt("recent_category", settingsCategory).apply()
         }
     }
-    if (confirmReset) {
+    if (confirmReset && visible) {
         Dialog(onDismissRequest = { confirmReset = false }) {
             Column(Modifier.width(360.dp).settingsFrost(20.dp).padding(22.dp)) {
                 BasicText(stringResource(R.string.halo_reset_confirm), style = Type.Headline)
@@ -209,7 +216,7 @@ fun WallpaperSheet(
                     ActionChip(stringResource(R.string.halo_reset_action), Glyph.Check) {
                         when (settingsCategory) {
                             0 -> { AerialSettings.chooseClockTextColor(0); AerialSettings.chooseSettingsIconPosition(1); AerialSettings.chooseSettingsIconVisibility(1) }
-                            1 -> { AerialSettings.chooseOneRowHome(true); AerialSettings.choosePlateStyle(1); AerialSettings.choosePeekNextRow(false); AerialSettings.chooseHomeColumns(5); AerialSettings.chooseCompactDockCorners(false); AerialSettings.chooseShowAllNames(false) }
+                            1 -> { AerialSettings.chooseOneRowHome(true); AerialSettings.choosePlateStyle(1); AerialSettings.choosePeekNextRow(false); AerialSettings.chooseHomeColumns(5); AerialSettings.chooseCompactDockCorners(false); AerialSettings.chooseDockSize(1); AerialSettings.chooseShowAllNames(false) }
                             2 -> { AerialSettings.chooseClockPosition(0); AerialSettings.chooseClockSizeMode(0); AerialSettings.chooseClock24Hour(true); AerialSettings.chooseShowHomeGreeting(true); AerialSettings.chooseShowHomeTime(true); AerialSettings.chooseShowHomeDate(true); AerialSettings.chooseShowLunarDate(true); AerialSettings.chooseShowWeather(true); AerialSettings.chooseShowDeviceCapacity(true) }
                             4 -> { AerialSettings.chooseFocusStyle(FocusStyle.ClassicGlassSlide); AerialSettings.chooseUiSounds(UiSounds.Soft); Sounds.prepare() }
                             6 -> { AerialSettings.chooseEffects(Effects.Auto); AerialSettings.chooseAutoCleanIdle(true) }
@@ -226,8 +233,9 @@ fun WallpaperSheet(
 
     // The phone page listens all along (PhoneServer.listen); the address is read again each time,
     // as the TV's may have changed.
-    LaunchedEffect(visible, wallpaperOnly, settingsCategory == 8) {
-        if (!visible || !wallpaperOnly && settingsCategory == 8) return@LaunchedEffect
+    val showPhonePanel = wallpaperOnly || settingsCategory < 7
+    LaunchedEffect(visible, showPhonePanel) {
+        if (!visible || !showPhonePanel) return@LaunchedEffect
         while (isActive) {
             val url = withContext(Dispatchers.IO) { runCatching { PhoneServer.start(context) }.getOrNull() }
             if (url != phoneUrl || url != null && qr == null) {
@@ -252,11 +260,11 @@ fun WallpaperSheet(
             Box(Modifier.fillMaxSize().consumeTaps().settingsFrost()) {
                 Column(Modifier.fillMaxSize().padding(start = 30.dp, end = 28.dp, top = 24.dp, bottom = 24.dp)) {
                     val scope = rememberCoroutineScope()
-                    val scroll = rememberScrollState()
+                    val scroll = key(presentedPicker) { rememberScrollState() }
                     if (true) {
                         Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.Top) {
                             BasicText(stringResource(if (wallpaperOnly) R.string.home_wallpaper_screensaver else R.string.wp_title), style = Type.LargeTitle.copy(fontWeight = FontWeight.Bold), modifier = Modifier.weight(1f))
-                            if (!wallpaperOnly && recentCategory in 0..8 && recentCategory != 3) ActionChip(stringResource(R.string.halo_recent), Glyph.Calendar) {
+                            if (!wallpaperOnly && recentCategory in 0..9 && recentCategory != 3) ActionChip(stringResource(R.string.halo_recent), Glyph.Calendar) {
                                 settingsCategory = recentCategory
                                 scope.launch { scroll.scrollTo(0) }
                             }
@@ -268,16 +276,18 @@ fun WallpaperSheet(
                 // is laid out over it, what replaces it when idle, then the weather and the PIN.
                 // Settings sit in tvOS-style grouped rows; each group's note follows the focused row.
                 if (wallpaperOnly) {
-                    WallpaperCategorySidebar(wallpaperCategory) { index ->
-                        if (wallpaperCategory != index) {
-                            wallpaperCategory = index
-                            scope.launch { scroll.scrollTo(0) }
+                    key(presentedPicker) {
+                        WallpaperCategorySidebar(wallpaperCategory, visible, presentedPicker?.initialCategory ?: 0) { index ->
+                            if (wallpaperCategory != index) {
+                                wallpaperCategory = index
+                                scope.launch { scroll.scrollTo(0) }
+                            }
                         }
                     }
                     Spacer(Modifier.width(12.dp))
                 } else {
-                    SettingsSidebar(settingsCategory, recentCategory, remoteFirstFocus, remoteSidebarFocus, onRecent = {
-                        if (recentCategory in 0..8 && recentCategory != 3) { settingsCategory = recentCategory; scope.launch { scroll.scrollTo(0) } }
+                    SettingsSidebar(settingsCategory, recentCategory, remoteFirstFocus, remoteSidebarFocus, islandFirstFocus = islandFirstFocus, onRecent = {
+                        if (recentCategory in 0..9 && recentCategory != 3) { settingsCategory = recentCategory; scope.launch { scroll.scrollTo(0) } }
                     }) { index ->
                         if (settingsCategory != index) {
                             settingsCategory = index
@@ -289,8 +299,14 @@ fun WallpaperSheet(
                 Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(scroll).latestBringIntoView(scroll)) {
                     if (showWallpaper) {
                         if (wallpaperCategory != 2) {
-                            key(wallpaperCategory) {
-                                WallpaperRows(videosOnly = wallpaperCategory == 1, sourcesOnly = wallpaperCategory == 3, initialFocus = false)
+                            key(presentedPicker, wallpaperCategory) {
+                                WallpaperRows(
+                                    showDialogs = visible,
+                                    videosOnly = wallpaperCategory == 1,
+                                    sourcesOnly = wallpaperCategory == 3,
+                                    initialFocus = false,
+                                    initiallyShowLocal = localVideos?.let { wallpaperCategory == if (it) 1 else 0 } == true,
+                                )
                             }
                             if (wallpaperCategory == 0 && Wallpapers.selectedId == Wallpapers.ROTATE_PHOTOS) Group { note ->
                                 Choices(
@@ -309,16 +325,7 @@ fun WallpaperSheet(
                                 Choices(R.string.st_play, stringResource(R.string.st_play_hint), note,
                                     listOf(false to R.string.st_play_still, true to R.string.st_play_always),
                                     AerialSettings.wallpaperAlwaysMoves, AerialSettings::chooseWallpaperAlwaysMoves, first = true)
-                                if (Wallpapers.selectedId == Wallpapers.LIVE) {
-                                    val qualities = remember { AerialFormats.supported(context) }
-                                    if (qualities.size > 1) Choices(
-                                        R.string.ss_quality, stringResource(R.string.aerial_quality_shared_hint), note,
-                                        listOf(AerialQuality.Auto to R.string.ss_quality_auto, AerialQuality.Hd to R.string.ss_quality_hd) +
-                                            listOf(AerialQuality.Uhd to R.string.ss_quality_uhd, AerialQuality.DolbyVision to R.string.ss_quality_dv)
-                                                .filter { it.first in qualities },
-                                        AerialSettings.aerialQuality, AerialSettings::chooseAerialQuality,
-                                    )
-                                }
+                                if (Wallpapers.selectedId == Wallpapers.LIVE) AerialQualityControls(note)
                                 if (Wallpapers.isVideo()) {
                                     Choices(R.string.video_sound, stringResource(R.string.video_sound_hint), note,
                                         listOf(true to R.string.video_muted, false to R.string.video_unmuted),
@@ -373,6 +380,11 @@ fun WallpaperSheet(
                             listOf(false to R.string.halo_dock_corners_round, true to R.string.halo_dock_corners_compact),
                             AerialSettings.compactDockCorners, AerialSettings::chooseCompactDockCorners,
                         )
+                        if (settingsCategory == 1) Choices(
+                            R.string.halo_dock_size, stringResource(R.string.halo_dock_size_hint), note,
+                            listOf(0 to R.string.halo_dock_size_small, 1 to R.string.halo_dock_size_default, 2 to R.string.halo_dock_size_large),
+                            AerialSettings.dockSize, AerialSettings::chooseDockSize,
+                        )
                         if (settingsCategory == 0) Choices(
                             R.string.clock_text_color, null, note,
                             listOf(0 to R.string.clock_white, 1 to R.string.clock_dark_gray, 2 to R.string.clock_black),
@@ -380,8 +392,8 @@ fun WallpaperSheet(
                         )
                         if (settingsCategory == 1) Choices(
                             R.string.st_names, stringResource(R.string.st_names_hint), note,
-                            listOf(false to R.string.st_names_focused, true to R.string.st_names_all),
-                            AerialSettings.showAllNames, AerialSettings::chooseShowAllNames,
+                            listOf(0 to R.string.st_names_focused, 1 to R.string.st_names_all, 2 to R.string.st_names_title),
+                            AerialSettings.appNameStyle, AerialSettings::chooseAppNameStyle,
                         )
                         if (settingsCategory == 0) Choices(
                             R.string.settings_icon_position, null, note,
@@ -498,17 +510,7 @@ fun WallpaperSheet(
                             listOf(0 to R.string.flip_seconds_numeric, 1 to R.string.flip_seconds_colon),
                             AerialSettings.flipClockSecondsStyle, AerialSettings::chooseFlipClockSecondsStyle)
                         }
-                        // Only the qualities this TV can play; a 1080p-only TV has nothing to choose.
-                        val qualities = remember { AerialFormats.supported(context) }
-                        if (Wallpapers.screensaver == ScreensaverMode.Aerial && qualities.size > 1) {
-                            Choices(
-                                R.string.ss_quality, stringResource(R.string.ss_quality_hint), note,
-                                listOf(AerialQuality.Auto to R.string.ss_quality_auto, AerialQuality.Hd to R.string.ss_quality_hd) +
-                                    listOf(AerialQuality.Uhd to R.string.ss_quality_uhd, AerialQuality.DolbyVision to R.string.ss_quality_dv)
-                                        .filter { it.first in qualities },
-                                AerialSettings.aerialQuality, AerialSettings::chooseAerialQuality,
-                            )
-                        }
+                        if (Wallpapers.screensaver == ScreensaverMode.Aerial) AerialQualityControls(note)
                         // The clock screensaver is its clock, and the others show none.
                         if (Wallpapers.screensaver == ScreensaverMode.Aerial || Wallpapers.screensaver == ScreensaverMode.Photos) Choices(
                             R.string.ss_show_time, stringResource(R.string.ss_show_time_hint), note,
@@ -573,12 +575,10 @@ fun WallpaperSheet(
                         CastSettingsContent()
                         Spacer(Modifier.height(20.dp))
                     }
-                    if (!wallpaperOnly && settingsCategory == 8) {
-                        AboutSettingsContent()
-
-                    }
+                    if (!wallpaperOnly && settingsCategory == 8) AboutSettingsContent()
+                    if (!wallpaperOnly && settingsCategory == 9) IslandSettings(islandPreferences, islandApps(), islandFirstFocus)
                 }
-                if (wallpaperOnly || settingsCategory != 8) {
+                if (showPhonePanel) {
                     Spacer(Modifier.width(if (wallpaperOnly) 28.dp else 18.dp))
                     // Keep phone setup anchored while switching or scrolling other categories.
                     SettingsPreviewPanel(phoneUrl, qr, 0.dp, 0.dp, compact = wallpaperOnly)
@@ -721,14 +721,22 @@ internal fun AboutSettingsContent(modifier: Modifier = Modifier) {
 
 /** Wallpaper navigation stays fixed while the selected category scrolls independently. */
 @Composable
-private fun WallpaperCategorySidebar(selected: Int, onSelect: (Int) -> Unit) {
+internal fun WallpaperCategorySidebar(selected: Int, interactive: Boolean, initialCategory: Int, onSelect: (Int) -> Unit) {
+    val entryFocus = remember { FocusRequester() }
+    LaunchedEffect(interactive) {
+        if (interactive) {
+            withFrameNanos { }
+            entryFocus.requestFocus()
+        }
+    }
     val categories = listOf(R.string.category_static to Glyph.Photo, R.string.category_dynamic to Glyph.Play, R.string.category_saver to Glyph.Screen) +
         if (Wallpapers.items.any { it.kind == WallpaperKind.Source }) listOf(R.string.category_sources to Glyph.Input) else emptyList()
     Column(Modifier.width(116.dp).fillMaxHeight().clip(RoundedCornerShape(16.dp))
         .background(Color.White.copy(alpha = 0.06f)).padding(6.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         categories.forEachIndexed { index, (title, icon) ->
-            Pressable(onClick = { onSelect(index) }, focusedScale = 1f,
-                modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused) onSelect(index) }) { state ->
+            Pressable(onClick = { onSelect(index) }, focusedScale = 1f, enabled = interactive,
+                focusRequester = entryFocus.takeIf { index == initialCategory },
+                modifier = Modifier.fillMaxWidth().onFocusChanged { if (interactive && it.isFocused) onSelect(index) }) { state ->
                 val highlighted = selected == index || state.focused
                 val foreground = if (highlighted) Palette.OnFocus else Palette.Label
                 Row(Modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(12.dp))
@@ -769,19 +777,23 @@ private fun WallpaperSourceCard(title: String, subtitle: String, imageId: String
 
 /** Categories stay visible while the selected settings scroll in the middle column. */
 @Composable
-internal fun SettingsSidebar(selected: Int, recent: Int, remoteFirstFocus: FocusRequester, remoteSidebarFocus: FocusRequester, onRecent: () -> Unit, onSelect: (Int) -> Unit) {
+internal fun SettingsSidebar(selected: Int, recent: Int, remoteFirstFocus: FocusRequester, remoteSidebarFocus: FocusRequester, onRecent: () -> Unit, islandFirstFocus: FocusRequester? = null, onSelect: (Int) -> Unit) {
     val labels = listOf(R.string.halo_cat_appearance, R.string.halo_cat_apps, R.string.settings_category_clock,
         R.string.home_wallpaper_screensaver, R.string.halo_cat_remote, R.string.halo_cat_family,
-        R.string.halo_cat_performance, R.string.halo_cat_cast, R.string.halo_cat_about)
-    val glyphs = listOf(Glyph.Home, Glyph.Folder, Glyph.Calendar, Glyph.Photo, Glyph.Switches, Glyph.Kids, Glyph.Performance, Glyph.Cast, Glyph.Info)
+        R.string.halo_cat_performance, R.string.halo_cat_cast, R.string.halo_cat_about, R.string.island_title)
+    val glyphs = listOf(Glyph.Home, Glyph.Folder, Glyph.Calendar, Glyph.Photo, Glyph.Switches, Glyph.Kids, Glyph.Performance, Glyph.Cast, Glyph.Info, Glyph.Switches)
     Column(Modifier.width(200.dp).fillMaxHeight()
         .clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.06f)).padding(8.dp)) {
-        labels.forEachIndexed { index, title ->
-            if (index == 3) return@forEachIndexed
+        // Keep category IDs stable for the saved recent entry.
+        listOf(0, 1, 2, 4, 5, 6, 7, 8, 9).forEach { index ->
+            val title = labels[index]
             Pressable(
                 onClick = { onSelect(index) }, focusedScale = 1f,
                 focusRequester = if (index == 4) remoteSidebarFocus else null,
-                modifier = Modifier.fillMaxWidth().focusProperties { if (index == 4 && selected == 4) right = remoteFirstFocus }.onFocusChanged { if (it.isFocused) onSelect(index) },
+                modifier = Modifier.fillMaxWidth().focusProperties {
+                    if (index == 4 && selected == 4) right = remoteFirstFocus
+                    if (index == 9 && selected == 9 && islandFirstFocus != null) right = islandFirstFocus
+                }.onFocusChanged { if (it.isFocused) onSelect(index) },
             ) { state ->
                 val bg = when { state.focused -> Palette.Focus; selected == index -> Color.White.copy(alpha = 0.18f); else -> Color.Transparent }
                 val fg = if (state.focused) Palette.OnFocus else Palette.Label
@@ -866,13 +878,19 @@ private fun SettingsPreviewPanel(url: String?, qr: ImageBitmap?, topInset: andro
  * choice. The focused card's note is under the row, as under a group of settings.
  */
 @Composable
-private fun WallpaperRows(videosOnly: Boolean, sourcesOnly: Boolean = false, initialFocus: Boolean = true) {
+private fun WallpaperRows(
+    videosOnly: Boolean,
+    sourcesOnly: Boolean = false,
+    initialFocus: Boolean = true,
+    initiallyShowLocal: Boolean = false,
+    showDialogs: Boolean = true,
+) {
     val items = Wallpapers.items
     val selected = Wallpapers.selectedId
     var preview by remember { mutableStateOf<Wallpaper?>(null) }
     var aerialLibrary by remember { mutableStateOf(false) }
     var bingLibrary by remember { mutableStateOf(false) }
-    var showLocal by remember(videosOnly, sourcesOnly) { mutableStateOf(false) }
+    var showLocal by remember(videosOnly, sourcesOnly, initiallyShowLocal) { mutableStateOf(initiallyShowLocal) }
     val first = remember { FocusRequester() }
     val dailyTitle = stringResource(R.string.wp_daily_latest)
     val rotateTitle = stringResource(R.string.wp_photos_rotate)
@@ -945,10 +963,10 @@ if (sourcesOnly) {
         }
     }
     }
-    if (bingLibrary) BingLibrary { bingLibrary = false }
-    preview?.let { WallpaperPreview(it) { preview = null } }
-    if (videosOnly && !sourcesOnly) {
-        if (aerialLibrary) AerialLibrary { aerialLibrary = false }
+    if (showDialogs) {
+        if (bingLibrary) BingLibrary { bingLibrary = false }
+        preview?.let { WallpaperPreview(it) { preview = null } }
+        if (videosOnly && !sourcesOnly && aerialLibrary) AerialLibrary { aerialLibrary = false }
     }
     Box(Modifier.height(42.dp).padding(start = 4.dp, top = 8.dp)) {
         BasicText(listOfNotNull(note, stringResource(R.string.wallpaper_hold_manage)).joinToString("  ·  "),
@@ -1014,10 +1032,34 @@ private fun AerialLibrary(onDismiss: () -> Unit) {
                         }) { Wallpapers.chooseAerial(film.id); OnlineRotation.markVideoApplied(); onDismiss() }
 
                     }
+                    Spacer(Modifier.height(10.dp))
+                    AerialQualityControls(note = {})
                 }
             }
         }
     }
+}
+
+@Composable
+private fun AerialQualityControls(note: (String?) -> Unit) {
+    val context = LocalContext.current
+    val supported = remember(context) { AerialFormats.supported(context) }
+    val options = listOf(
+        AerialQuality.Auto to R.string.ss_quality_auto,
+        AerialQuality.Hd to R.string.ss_quality_hd,
+        AerialQuality.Uhd to R.string.ss_quality_uhd,
+        AerialQuality.DolbyVision to R.string.ss_quality_dv,
+    ).filter { (quality, _) -> quality == AerialQuality.Auto || quality == AerialQuality.Hd || quality in supported }
+    val status = stringResource(
+        when {
+            AerialQuality.Uhd !in supported -> R.string.aerial_quality_4k_unavailable
+            AerialQuality.DolbyVision in supported -> R.string.aerial_quality_shared_hint
+            else -> R.string.aerial_quality_hd_uhd
+        },
+    )
+    Choices(R.string.ss_quality, status, note, options, AerialSettings.aerialQuality, AerialSettings::chooseAerialQuality)
+    BasicText(status, Modifier.padding(start = 12.dp, end = 9.dp, bottom = 9.dp),
+        style = Type.Caption.copy(color = Palette.SecondaryLabel))
 }
 
 @Composable
@@ -1115,7 +1157,8 @@ private fun aerialThumbnail(url: String, grid: LazyGridState, key: String, fallb
         val allowed = url.startsWith("https://sylvan.apple.com/") || url.startsWith("https://ygn-bing-wallpaper.pages.dev/thumbnails/")
         if (!visible || !allowed) image = null
         val job = if (visible && allowed) scope.launch {
-            app.orchard.tv.system.CompatibleHttp.init(context)
+            val apple = url.startsWith("https://sylvan.apple.com/")
+            if (!apple) app.orchard.tv.system.CompatibleHttp.init(context)
             var decoded: android.graphics.Bitmap? = null
             // A transient timeout must not leave a visible tile blank for the whole visit.
             repeat(2) { attempt ->
@@ -1123,7 +1166,8 @@ private fun aerialThumbnail(url: String, grid: LazyGridState, key: String, fallb
                     if (attempt > 0) kotlinx.coroutines.delay(700)
                     decoded = withContext(Dispatchers.IO) { aerialThumbSlots.withPermit {
                         runCatching {
-                            val c = app.orchard.tv.system.CompatibleHttp.open(url)
+                            val c = if (apple) app.orchard.tv.system.CompatibleHttp.openAerialThumbnail(context, url)
+                                else app.orchard.tv.system.CompatibleHttp.open(url)
                             synchronized(lock) { if (disposed) { c.disconnect(); return@runCatching null }; connection = c }
                             try {
                                 c.connectTimeout = 8_000; c.readTimeout = 12_000
@@ -1195,7 +1239,7 @@ private fun wallpaperNote(wp: Wallpaper): String? = when {
 @Composable
 private fun WallpaperCard(wp: Wallpaper, focusRequester: FocusRequester?, onFocused: () -> Unit, onClick: () -> Unit, onLongClick: () -> Unit) {
     val selected = Wallpapers.selectedId == wp.id
-    val previewVersion = if (wp.kind == WallpaperKind.Live || wp.kind == WallpaperKind.Video) Wallpapers.pictureVersion else 0
+    val previewVersion = if (wp.id == Wallpapers.BING_ROTATION || wp.kind == WallpaperKind.Live || wp.kind == WallpaperKind.Video) Wallpapers.pictureVersion else 0
     val thumb by produceState<ImageBitmap?>(null, wp.id, Wallpapers.items, previewVersion) {
         value = withContext(Dispatchers.Default) { Wallpapers.thumbnail(wp.id)?.asImageBitmap() }
     }
@@ -1412,31 +1456,6 @@ private fun WeatherCityButton() {
     }
 }
 
-/** Where the weather is for and what it is now. The city is set on the phone page. */
-@Composable
-private fun WeatherValue() {
-    val w = Weather.now
-    val place = Weather.place
-    val kind = w?.let {
-        stringResource(
-            when (it.kind) {
-                WeatherKind.Clear -> R.string.wx_clear
-                WeatherKind.PartlyCloudy -> R.string.wx_partly_cloudy
-                WeatherKind.Cloudy -> R.string.wx_cloudy
-                WeatherKind.Fog -> R.string.wx_fog
-                WeatherKind.Rain -> R.string.wx_rain
-                WeatherKind.Snow -> R.string.wx_snow
-                WeatherKind.Thunder -> R.string.wx_thunder
-            },
-        )
-    }
-    BasicText(
-        if (w != null) listOfNotNull(place, stringResource(R.string.weather_temperature, w.celsius) + " $kind").joinToString(" · ") else stringResource(R.string.wp_weather_none),
-        style = Type.Body.copy(color = Palette.SecondaryLabel),
-        modifier = Modifier.padding(end = 8.dp),
-    )
-}
-
 /** A pill to pick one of a few options: a check on the chosen one, white when focused. */
 @Composable
 private fun Chip(label: String, on: Boolean, onFocused: (() -> Unit)? = null, enabled: Boolean = true, reserveCheck: Boolean = false, compact: Boolean = false, focusRequester: FocusRequester? = null, leftFocusRequester: FocusRequester? = null, onKey: ((androidx.compose.ui.input.key.KeyEvent) -> Boolean)? = null, onClick: () -> Unit) {
@@ -1510,34 +1529,6 @@ private fun RowScope.ScreensaverChoice() {
     }
 }
 
-@Composable
-private fun PhoneCard(url: String?, qr: ImageBitmap?) {
-    Column(Modifier.width(220.dp).padding(top = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            Modifier.size(176.dp).clip(RoundedCornerShape(18.dp)).background(Color.White).padding(14.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (qr != null) {
-                Image(qr, contentDescription = null, contentScale = ContentScale.Fit, filterQuality = FilterQuality.None, modifier = Modifier.fillMaxSize())
-            } else {
-                GlyphIcon(Glyph.Offline, Color.Black.copy(alpha = 0.35f), 40.dp)
-            }
-        }
-        Spacer(Modifier.height(14.dp))
-        BasicText(stringResource(R.string.wp_phone_title), style = Type.Headline)
-        Spacer(Modifier.height(4.dp))
-        BasicText(
-            stringResource(if (url != null) R.string.wp_phone_body else R.string.wp_phone_offline),
-            style = Type.Caption.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center),
-        )
-        if (url != null) {
-            Spacer(Modifier.height(6.dp))
-            // The whole address, token and all, to type into a computer's browser.
-            BasicText(url.removePrefix("http://"), style = Type.Caption.copy(color = Palette.SecondaryLabel))
-        }
-    }
-}
-
 private data class BingEntry(val date: String, val title: String, val credit: String, val category: String, val thumbnail: String)
 private data class BingOriginal(val url: String, val uhd: Boolean)
 private const val BING_ARCHIVE = "https://ygn-bing-wallpaper.pages.dev/"
@@ -1586,14 +1577,12 @@ private fun BingLibrary(onDismiss: () -> Unit) {
     LaunchedEffect(attempt) {
         loading = true; error = false
         val result = withContext(Dispatchers.IO) { runCatching {
-            val array = org.json.JSONArray(String(bingBytes(BING_ARCHIVE + "data/index.json", 4_000_000), Charsets.UTF_8))
-            val dateFormat = Regex("[0-9]{8}")
-            val thumbnailFormat = Regex("thumbnails/[0-9]{4}/[0-9]{2}/[0-9]{8}\\.webp")
+            val array = app.orchard.tv.wallpaper.PhoneOnlineLibrary.parseIndex(
+                String(bingBytes(BING_ARCHIVE + "data/index.json", 4_000_000), Charsets.UTF_8))
             buildList {
                 for (i in 0 until array.length()) {
                     val o = array.getJSONObject(i); val date = o.optString("date"); val thumb = o.optString("thumbnail")
-                    if (date.matches(dateFormat) && thumb.matches(thumbnailFormat))
-                        add(BingEntry(date, o.optString("title"), o.optString("copyright"), o.optString("category"), BING_ARCHIVE + thumb))
+                    add(BingEntry(date, o.optString("title"), o.optString("copyright"), o.optString("category"), BING_ARCHIVE + thumb))
                 }
             }
         } }
@@ -1690,15 +1679,19 @@ private fun BingLibrary(onDismiss: () -> Unit) {
                             }) {
                             saving = true; saveError = false
                             scope.launch {
-                                val previous = Wallpapers.selectedId
-                                val id = runCatching {
+                                val request = Wallpapers.beginBingRequest()!!
+                                val id = try {
                                     val bytes = withContext(Dispatchers.IO) {
                                         val uhdUrl = source.url.replace("_1920x1080.jpg", "_UHD.jpg")
                                         if (source.uhd) runCatching { bingBytes(uhdUrl, 32_000_000) }.getOrElse { bingBytes(source.url, 16_000_000) }
                                         else bingBytes(source.url, 16_000_000)
                                     }
-                                    if (Wallpapers.applyBingCached(bytes, item.credit, previous)) Wallpapers.BING_ROTATION else null
-                                }.getOrNull()
+                                    if (Wallpapers.applyBingCached(bytes, item.credit, request)) Wallpapers.BING_ROTATION else null
+                                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    null
+                                } finally { Wallpapers.finishBingRequest(request) }
                                 saving = false
                                 if (id == null) saveError = true else { OnlineRotation.markBingApplied(id, category, item.date); onDismiss() }
                             }

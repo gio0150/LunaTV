@@ -5,8 +5,10 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.os.Build
 import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
 import androidx.compose.foundation.background
@@ -58,7 +60,11 @@ fun FlipClockSaver(now: LocalDateTime) {
     }
 }
 
-internal class FlipClockView(context: Context, private val secondNow: () -> Int = { LocalDateTime.now().second }) : View(context) {
+internal class FlipClockView(
+    context: Context,
+    outlineLargeDigits: Boolean = Build.VERSION.SDK_INT <= 22,
+    private val secondNow: () -> Int = { LocalDateTime.now().second },
+) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG)
     private val digitTypeface = Typeface.create("sans-serif-black", Typeface.BOLD)
     private val textTypeface = Typeface.create("sans-serif", Typeface.NORMAL)
@@ -68,6 +74,8 @@ internal class FlipClockView(context: Context, private val secondNow: () -> Int 
     private val metrics = Paint.FontMetrics()
     private val digits = Array(10) { it.toString() }
     private val sizes = FloatArray(10)
+    // Android 5.x HWUI can drop these large glyphs when they cannot fit in its text atlas.
+    private val digitPaths = if (outlineLargeDigits) Array(10) { Path() } else null
     private val offsets = FloatArray(10)
     private var measuredWidth = -1f
     private var measuredHeight = -1f
@@ -240,10 +248,19 @@ internal class FlipClockView(context: Context, private val secondNow: () -> Int 
     private fun drawGlyph(canvas: Canvas, card: RectF, digit: Char) {
         val index = digit - '0'
         paint.color = Color.rgb(244, 244, 244)
-        paint.typeface = digitTypeface
-        paint.textAlign = Paint.Align.CENTER
-        paint.textSize = sizes[index]
-        canvas.drawText(digits[index], card.centerX(), card.centerY() + offsets[index], paint)
+        val path = digitPaths?.get(index)
+        val baseline = card.centerY() + offsets[index]
+        if (path != null) {
+            canvas.save()
+            canvas.translate(card.centerX(), baseline)
+            canvas.drawPath(path, paint)
+            canvas.restore()
+        } else {
+            paint.typeface = digitTypeface
+            paint.textAlign = Paint.Align.CENTER
+            paint.textSize = sizes[index]
+            canvas.drawText(digits[index], card.centerX(), baseline, paint)
+        }
     }
 
     private fun measureDigits(width: Float, height: Float) {
@@ -251,12 +268,18 @@ internal class FlipClockView(context: Context, private val secondNow: () -> Int 
         measuredWidth = width
         measuredHeight = height
         paint.typeface = digitTypeface
+        paint.textAlign = Paint.Align.LEFT
         for (index in digits.indices) {
             paint.textSize = height * 1.20f
             while (paint.textSize > 2f && paint.measureText(digits[index]) > width * 0.98f) paint.textSize -= 2f
             sizes[index] = paint.textSize
             paint.getFontMetrics(metrics)
             offsets[index] = -(metrics.ascent + metrics.descent) * 0.5f
+            digitPaths?.get(index)?.let { path ->
+                path.reset()
+                val glyph = digits[index]
+                paint.getTextPath(glyph, 0, glyph.length, -paint.measureText(glyph) * 0.5f, 0f, path)
+            }
         }
     }
 }

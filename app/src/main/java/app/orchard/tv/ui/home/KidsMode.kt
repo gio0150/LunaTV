@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
@@ -385,9 +386,13 @@ fun KidsLockScreen(lock: KidsLock?, pinOpen: Boolean, onParent: (onRight: () -> 
                     QuizPanel(context, onPassed = { reward ->
                         Restricted.completeQuiz(reward)
                         KidsWatch.poke()
-                    }, onParent = { askParent { granting = true } })
+                    }, onParent = {
+                        setInteractionEnabled(false)
+                        askParent { granting = true }
+                    })
                 },
-                modifier = Modifier.fillMaxSize().consumeTaps(),
+                update = { it.setInteractionEnabled(!pinOpen) },
+                modifier = Modifier.fillMaxSize().focusProperties { canFocus = !pinOpen }.consumeTaps(),
             )
             return@AnimatedVisibility
         }

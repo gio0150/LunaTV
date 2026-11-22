@@ -39,7 +39,7 @@ internal object ResumableDownload {
                 try {
                     configure(c)
                     c.connectTimeout = 10_000
-                    c.readTimeout = 20_000
+                    c.readTimeout = 60_000
                     c.setRequestProperty("Accept-Encoding", "identity")
                     if (from > 0) {
                         c.setRequestProperty("Range", "bytes=$from-")
@@ -65,7 +65,10 @@ internal object ResumableDownload {
                         if (start != from || end < start || end >= total || (length >= 0 && length != end - start + 1)) throw InvalidResponse("inconsistent content range")
                         rangeEnd = end
                     } else {
-                        if (code != HttpURLConnection.HTTP_OK) throw IOException("HTTP $code")
+                        if (code != HttpURLConnection.HTTP_OK) {
+                            if (code in 400..499 && code != 408 && code != 429) throw InvalidResponse("HTTP $code")
+                            throw IOException("HTTP $code")
+                        }
                         // Discard the old entity before adopting a new validator or opening the body.
                         if (part.exists() && !part.delete()) throw InvalidResponse("cannot discard old partial")
                         validator = responseTag
@@ -74,7 +77,7 @@ internal object ResumableDownload {
                         total = length
                         expectedTotal = length.takeIf { it >= 0 }
                     }
-                    if (total > maxBytes) throw InvalidResponse("APK too large")
+                    if (total > maxBytes || total == 0L) throw InvalidResponse("Invalid APK size")
                     var done = if (append) from else 0L
                     var shown = -1
                     var windowAt = now()
@@ -102,12 +105,19 @@ internal object ResumableDownload {
                     }
                     if (rangeEnd != null && done < rangeEnd + 1) throw IOException("incomplete range body")
                     if (rangeEnd != null && done > rangeEnd + 1) throw InvalidResponse("range body length mismatch")
-                    if (total >= 0 && done != total) throw IOException("incomplete response")
+                    if (done == 0L || (total >= 0 && done != total)) throw IOException("incomplete response")
                     return
                 } catch (e: IOException) {
                     lastError = e
-                    // A new source, an unvalidated resource, or no progress starts from scratch elsewhere.
-                    if (e is InvalidResponse || validator == null || !part.isFile || part.length() <= attemptStart) throw e
+                    // Transient failures before the first byte and responses without ETags also get
+                    // bounded retries. Only a strong validator permits appending a partial.
+                    if (e is InvalidResponse) throw e
+                    if (validator == null || !part.isFile || part.length() <= attemptStart) {
+                        part.delete()
+                        validator = null
+                        expectedTotal = null
+                        entityUrl = null
+                    }
                 } finally {
                     c.disconnect()
                 }

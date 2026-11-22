@@ -1966,7 +1966,7 @@ $('#diagCopy').onclick = () => toast(t(copyDiag() ? 'toast_copied' : 'toast_copy
 $('#diagGithub').onclick = (e) => {
   const text = $('#diag').textContent, q = new URLSearchParams({ template: 'device.yml' });
   const model = (text.match(/^Device +(.+?) \(device /m) || [])[1]?.split(' / ').pop();
-  const version = (text.match(/^(?:Luna TV|Halo TV|HaloTV|Aerial) +(\S+) \(/m) || [])[1];
+  const version = (text.match(/^(?:Luna TV|Luna TV|Luna TV|Aerial) +(\S+) \(/m) || [])[1];
   const profile = (text.match(/\*\*Device profile\*\* \(ThisTv\)\n```json\n(.+)\n```/) || [])[1];
   if (model) { q.set('title', '[机型] ' + model); q.set('model', model); }
   if (version) q.set('version', 'Luna TV ' + version);

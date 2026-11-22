@@ -8,6 +8,7 @@ import android.media.MediaFormat
 import android.os.Build
 import android.view.Display
 import android.view.WindowManager
+import androidx.annotation.RequiresApi
 import androidx.core.content.getSystemService
 import org.json.JSONObject
 import java.util.Locale
@@ -61,14 +62,13 @@ object AerialFormats {
     @Volatile
     private var probed: Set<AerialQuality>? = null
 
-    fun supported(context: Context): Set<AerialQuality> = probed ?: probe(context).also { probed = it }
+    fun supported(context: Context): Set<AerialQuality> = probed ?: synchronized(this) {
+        probed ?: probe(context).also { probed = it }
+    }
 
     /** [chosen], or for Auto the best supported; a choice the TV cannot play falls back too. */
     fun resolve(context: Context, chosen: AerialQuality): AerialQuality {
-        val ok = supported(context)
-        return if (chosen != AerialQuality.Auto && chosen in ok) chosen
-        else listOf(AerialQuality.DolbyVision, AerialQuality.Uhd).firstOrNull { it in ok && (chosen == AerialQuality.Auto || it.ordinal < chosen.ordinal) }
-            ?: AerialQuality.Hd
+        return resolveAerialQuality(chosen, supported(context))
     }
 
     /**
@@ -101,30 +101,39 @@ object AerialFormats {
 
     private fun probe(context: Context): Set<AerialQuality> {
         val found = mutableSetOf(AerialQuality.Hd)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return found
         val codecs = runCatching { MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { !it.isEncoder } }.getOrDefault(emptyList())
         fun caps(mime: String) = codecs.mapNotNull { info ->
-            if (info.supportedTypes.none { it.equals(mime, ignoreCase = true) }) null
-            else runCatching { info.getCapabilitiesForType(mime) }.getOrNull()
+            runCatching {
+                if (info.supportedTypes.any { it.equals(mime, ignoreCase = true) }) info.getCapabilitiesForType(mime) else null
+            }.getOrNull()?.let { info to it }
         }
-        val uhd = caps(MediaFormat.MIMETYPE_VIDEO_HEVC).any { c ->
-            runCatching { c.videoCapabilities?.areSizeAndRateSupported(3840, 2160, 30.0) == true }.getOrDefault(false)
+        // VideoCapabilities is available from API 21. In particular, a 4K HDMI mode says
+        // nothing about whether this firmware can decode a 3840×2160 HEVC stream.
+        val sdk = Build.VERSION.SDK_INT
+        val uhd = caps(MediaFormat.MIMETYPE_VIDEO_HEVC).any { (codec, c) ->
+            runCatching {
+                val sizeAndRate = c.videoCapabilities?.areSizeAndRateSupported(3840, 2160, 30.0) == true
+                acceptsAerialSdr(sdk, codec.name, sizeAndRate)
+            }.getOrDefault(false)
         }
         if (uhd) found += AerialQuality.Uhd
-        val dvDecoder = caps(MediaFormat.MIMETYPE_VIDEO_DOLBY_VISION).any { c ->
+        if (!uhd || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return found
+        val dvDecoder = caps(MediaFormat.MIMETYPE_VIDEO_DOLBY_VISION).any { (_, c) ->
             c.profileLevels.any {
                 it.profile == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheStn &&
                     it.level >= MediaCodecInfo.CodecProfileLevel.DolbyVisionLevelUhd30
             }
         }
-        val dvDisplay = runCatching {
-            @Suppress("DEPRECATION")
-            context.getSystemService<WindowManager>()?.defaultDisplay?.hdrCapabilities?.supportedHdrTypes
-                ?.contains(Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION) == true
-        }.getOrDefault(false)
-        if (uhd && dvDecoder && dvDisplay) found += AerialQuality.DolbyVision
+        if (dvDecoder && supportsDolbyVisionDisplay(context)) found += AerialQuality.DolbyVision
         return found
     }
+
+    @RequiresApi(Build.VERSION_CODES.N)
+    @Suppress("DEPRECATION")
+    private fun supportsDolbyVisionDisplay(context: Context): Boolean = runCatching {
+        context.getSystemService<WindowManager>()?.defaultDisplay?.hdrCapabilities?.supportedHdrTypes
+            ?.contains(Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION) == true
+    }.getOrDefault(false)
 }
 
 object Aerials {

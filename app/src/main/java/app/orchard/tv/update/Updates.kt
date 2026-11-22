@@ -26,8 +26,6 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
 import androidx.core.content.edit
 import app.orchard.tv.BuildConfig
-import app.orchard.tv.migration.MigrationIdentity
-import app.orchard.tv.migration.MigrationTransfer
 import app.orchard.tv.guard.GuardSetup
 import app.orchard.tv.settings.Restricted
 import app.orchard.tv.system.DiagLog
@@ -57,23 +55,23 @@ object Updates {
     private const val PREFS = "updates"
     private val RELEASE_API get() = "https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/releases/latest"
     val RELEASES_PAGE get() = "https://github.com/${BuildConfig.UPDATE_REPO}/releases"
-    private val SOURCE_ID = "${if (MigrationIdentity.independent) "luna-independent" else "luna-bridge"}:${BuildConfig.UPDATE_REPO}"
+    private val SOURCE_ID get() = "luna-independent:${BuildConfig.UPDATE_REPO}"
     internal const val MAX_APK_BYTES = 64L * 1024 * 1024
     private const val CHECK_EVERY_MS = 3 * 60 * 60 * 1000L
     private const val RETRY_MS = 10 * 60 * 1000L
 
     /**
      * A source that delivers less than [STALL_BYTES] in [STALL_MS] is given up for the next one
-     * (issue #390). A slow but moving download (about 8 KB/s and up) still finishes.
+     * (issue #390). Any advancing download remains valid, including slow home networks.
      */
-    private const val STALL_MS = 30_000L
-    private const val STALL_BYTES = 256 * 1024L
+    private const val STALL_MS = 60_000L
+    private const val STALL_BYTES = 1L
     const val CONTROL_CENTER_MAX_AGE_MS = RETRY_MS
 
     /** This build's version, e.g. "1.17" (the guard build's "-guard" left off). */
     val current: String = BuildConfig.VERSION_NAME.substringBefore('-')
     val edition: String get() = if (BuildConfig.FLAVOR == "guard") "Guard" else "Standard"
-    val buildLabel: String get() = "Luna TV ${BuildConfig.VERSION_NAME} · $edition · ${MigrationIdentity.label}"
+    val buildLabel: String get() = "Luna TV ${BuildConfig.VERSION_NAME} · $edition"
     @Volatile private var lastApkCheck = "not checked"
 
     /** The newer release's version, or null when this is the latest (or nothing is known yet). */
@@ -84,12 +82,13 @@ object Updates {
     private var expectedCode: Long? = null
 
     /**
-     * The latest Halo TV GitHub release notes; empty when no newer release or no body is available.
+     * The latest Luna TV GitHub release notes; empty when no newer release or no body is available.
      */
     var notes by mutableStateOf<List<ReleaseNotes>>(emptyList()); private set
 
     /** Where an install started from Control Center has got to. */
     var install by mutableStateOf<Install>(Install.Idle); private set
+    var downloaded by mutableStateOf(false); private set
 
     private lateinit var prefs: SharedPreferences
     private lateinit var appContext: Context
@@ -125,6 +124,7 @@ object Updates {
             val verified = result != null && withContext(Dispatchers.IO) { validDownload(appContext, file, release) != null }
             if (!verified) install = Install.Failed(Failure.Download)
             else {
+                downloaded = true
                 install = Install.Ready
                 autoPromptPending = true
                 promptDownloaded()
@@ -175,6 +175,7 @@ object Updates {
         if (cachedRelease != null) scope.launch {
             val valid = withContext(Dispatchers.IO) { runCatching { validDownload(appContext, apkFile(appContext), cachedRelease) != null }.getOrDefault(false) }
             if (valid && install == Install.Idle && available == cachedRelease.version && expectedCode == cachedRelease.code) {
+                downloaded = true
                 install = Install.Ready
                 autoPromptPending = autoDownload
                 promptDownloaded()
@@ -221,7 +222,10 @@ object Updates {
                 putLong("apk_code", latest.code ?: 0L)
                 putLong("checked_at", System.currentTimeMillis())
             }
-            if (install == Install.Ready && (available != latest.version || expectedCode != latest.code)) install = Install.Idle
+            if (available != latest.version || expectedCode != latest.code) {
+                downloaded = false
+                if (install == Install.Ready) install = Install.Idle
+            }
             availableApkUrl = latest.apkUrl
             mirrorApkUrl = latest.mirrorUrl
             expectedSha = latest.sha256
@@ -233,7 +237,7 @@ object Updates {
         }
     }
 
-    /** Use Halo TV's release description, never the upstream Aerial update feed. */
+    /** Use Luna TV's release description, never the upstream Aerial update feed. */
     fun loadNotes() {
         if (!started) return
         val version = available ?: run { notes = emptyList(); return }
@@ -270,7 +274,7 @@ object Updates {
     )
 
     /** Read only the latest stable release and its APK for this installed flavor. */
-    private fun readLatestRelease(independent: Boolean = MigrationIdentity.independent): Release {
+    private fun readLatestRelease(): Release {
         val json = JSONObject(read(RELEASE_API))
         check(!json.optBoolean("prerelease", false) && !json.optBoolean("draft", false)) { "no stable release" }
         val tag = json.getString("tag_name").removePrefix("v")
@@ -286,9 +290,10 @@ object Updates {
         val url = asset.optString("browser_download_url").takeIf {
             it.startsWith("https://github.com/${BuildConfig.UPDATE_REPO}/releases/download/")
         } ?: error("invalid APK URL")
-        val packageId = if (BuildConfig.LUNA_BRAND) BuildConfig.APPLICATION_ID
-            else if (independent) MigrationIdentity.target else BuildConfig.APPLICATION_ID
-        return Release(version, url, json.optString("body", "").take(16_000), packageId = packageId)
+        val digest = asset.optString("digest").removePrefix("sha256:")
+            .takeIf { it.matches(Regex("[a-f0-9]{64}")) }
+        return Release(version, url, json.optString("body", "").take(16_000), sha256 = digest,
+            packageId = BuildConfig.APPLICATION_ID)
     }
 
     private fun read(url: String): String {
@@ -344,8 +349,6 @@ object Updates {
     }
 
     /** The official package. Copies renamed for one firmware (OPPO, see docs/devices) cannot update from the release. */
-    private const val PACKAGE = "app.orchard.tv"
-
     /** Whether this copy can update itself from the release at all. */
     fun canInstall(context: Context): Boolean = context.packageName == BuildConfig.APPLICATION_ID
 
@@ -360,16 +363,16 @@ object Updates {
      */
     fun install(context: Context) = beginInstall(context, null)
 
-    fun installIndependent(context: Context) {
-        if (MigrationIdentity.bridge && !Restricted.active) beginInstall(context, null, migration = true)
-    }
+    /** Explicit fallback for firmware that accepts sessions but never shows a usable installer. */
+    fun installCompatible(context: Context) = beginInstall(context, null, compatible = true)
+
 
     internal fun installFromPhone(context: Context, upload: File) {
         if (!Restricted.active) beginInstall(context, upload)
     }
 
-    private fun beginInstall(context: Context, upload: File?, migration: Boolean = false) {
-        if (install is Install.Downloading || install == Install.Opened) return
+    private fun beginInstall(context: Context, upload: File?, compatible: Boolean = false) {
+        if (Restricted.active || install is Install.Downloading || (install == Install.Opened && !compatible)) return
         // A second press while the first session's confirmation is awaited (#1004: two sessions).
         if (awaiting != null) return
         val app = context.applicationContext
@@ -379,7 +382,7 @@ object Updates {
             LegacyUpdateStorage.requestPermission(context)
             return
         }
-        if (Build.VERSION.SDK_INT >= 26 && !app.packageManager.canRequestPackageInstalls()) {
+        if (!compatible && Build.VERSION.SDK_INT >= 26 && !app.packageManager.canRequestPackageInstalls()) {
             // Xiaomi MiTV-MFTR0 has this page; TCL MT5879 does not (tools/install.sh grants it there).
             val settings = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${app.packageName}"))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -401,13 +404,13 @@ object Updates {
             }
             target
         }
-        val requested = if (migration) null else available?.let { version ->
+        val requested = available?.let { version ->
             availableApkUrl?.let { Release(version, it, "", mirrorApkUrl, expectedSha, expectedCode) }
         }
         install = Install.Downloading(0f)
         scope.launch {
             val file = apkFile(app)
-            val ready = withContext(Dispatchers.IO) {
+            val ready = withContext(Dispatchers.IO) { runCatching {
                 // A download kept from a moment ago, when the owner backed out of the installer.
                 if (owned != null) {
                     try {
@@ -420,30 +423,43 @@ object Updates {
                     } finally {
                         owned.delete()
                     }
+                } else if (compatible) {
+                    // The staged file may have arrived by phone before the public feed changed.
+                    // Recheck its full identity, but never replace it with a different download.
+                    val info = verify(app, file)
+                    info?.takeIf { validatePhoneApk(app, file, it).error == null }
                 } else {
-                    val release = if (migration) runCatching { readLatestRelease(true) }.getOrNull() else requested
+                    val release = requested
                     release?.let { validDownload(app, file, it) } ?: downloadFrom(app, file, release)
                 }
-            }
+            }.onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                Log.w(TAG, "Could not prepare update", it)
+            }.getOrNull() }
             val failure = when {
                 ready == null -> Failure.Download
-                MigrationIdentity.error(app, ready) != null -> Failure.NotOfficial
+                ReleaseIdentity.error(app, ready) != null -> Failure.NotOfficial
                 versionCode(ready) < BuildConfig.VERSION_CODE -> Failure.NotNewer
                 else -> null
             }
             if (failure != null) {
                 Log.w(TAG, "not installing: $failure")
                 if (failure != Failure.Download) file.delete()
+                downloaded = false
                 install = Install.Failed(failure)
+                return@launch
+            }
+            downloaded = true
+            // Do not launch an installer from the background after a long download.
+            if (!homeInFront || Restricted.active) {
+                install = Install.Ready
+                autoPromptPending = true
                 return@launch
             }
             // Persist only a validated update explicitly requested by the viewer, never auto-download
             // or background self-compilation. It survives the process replacement.
-            if (MigrationIdentity.crossPackage(ready!!.packageName, app.packageName)) {
-                UpdateReturn.cancel(app)
-                MigrationTransfer.noteInstall(app, versionCode(ready))
-            } else UpdateReturn.noteInstall(app, versionCode(ready))
-            val opened = if (Build.VERSION.SDK_INT >= 28) installBySession(app, file) else openInstaller(context, app, file)
+            UpdateReturn.noteInstall(app, versionCode(ready!!))
+            val opened = if (Build.VERSION.SDK_INT >= 28 && !compatible) installBySession(app, file) else openInstaller(context, app, file)
             if (!opened) install = Install.Failed(Failure.Blocked)
         }
     }
@@ -510,7 +526,6 @@ object Updates {
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
             val target = verify(app, file)?.packageName ?: error("Unreadable install identity")
             setAppPackageName(target)
-            result.putExtra(EXTRA_TARGET, target)
             if (Build.VERSION.SDK_INT >= 33) setPackageSource(PackageInstaller.PACKAGE_SOURCE_OTHER)
             // Android 12 and later let an app update itself without the confirmation page, which some
             // firmwares do not have (Xiaomi MiTV-MFTR0: no CONFIRM_INSTALL activity, so the session
@@ -555,7 +570,6 @@ object Updates {
         java.util.zip.ZipFile(apk).use { zip -> zip.getEntry(name)?.let { e -> zip.getInputStream(e).use { it.readBytes() } } }
     }.getOrNull()
 
-    private const val EXTRA_TARGET = "app.halotv.update.TARGET"
     private const val EXTRA_WITH_DM = "app.orchard.tv.update.WITH_DM"
     private const val EXTRA_SELF = "app.orchard.tv.update.SELF"
     private const val SELF_ASKED = 1
@@ -658,9 +672,7 @@ object Updates {
             }
             PackageInstaller.STATUS_SUCCESS -> {
                 install = Install.Idle
-                if (intent.getStringExtra(EXTRA_TARGET) == MigrationIdentity.target && MigrationIdentity.bridge) {
-                    MigrationTransfer.openIndependent(app)
-                } else UpdateReturn.returnHome(app)
+                UpdateReturn.returnHome(app)
             }
             PackageInstaller.STATUS_FAILURE_ABORTED -> {
                 Log.i(TAG, "update not confirmed")
@@ -718,7 +730,6 @@ object Updates {
     /** Resume failed checks; if the installer closed without replacing Aerial, reset its button. */
     fun onHomeResumed() {
         homeInFront = true
-        if (started && MigrationTransfer.launchPending(appContext)) return
         promptDownloaded()
         maybeAutoDownload()
         if (install == Install.Opened) install = Install.Idle
@@ -823,7 +834,7 @@ object Updates {
 
     private fun validatePhoneApk(context: Context, file: File, info: PackageInfo?): ApkCheck {
         if (info == null || !file.isFile) return ApkCheck(error = "wrong_app")
-        val error = MigrationIdentity.error(context, info)
+        val error = ReleaseIdentity.error(context, info)
         lastApkCheck = "package=${info.packageName} edition=${BuildConfig.FLAVOR} code=${versionCode(info)} result=${error ?: "accepted"}"
         Log.i(TAG, "APK validation: $lastApkCheck")
         if (error != null) return ApkCheck(error = error)
@@ -854,7 +865,7 @@ object Updates {
         val info = ApkSigners.read { flags ->
             context.packageManager.getPackageArchiveInfo(file.path, flags or PackageManager.GET_META_DATA)
         } ?: return null
-        return info.takeIf { MigrationIdentity.supports(it.packageName, context.packageName) }
+        return info.takeIf { it.packageName == context.packageName }
     }
 
     /** Missing signing data is never permission to install. */
@@ -868,23 +879,26 @@ object Updates {
         if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
 
     private fun openInstaller(context: Context, app: Context, file: File): Boolean {
-        val uri = if (Build.VERSION.SDK_INT >= 24) FileProvider.getUriForFile(app, "${app.packageName}.files", file)
-        else Uri.fromFile(file)
-        val intent = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, "application/vnd.android.package-archive")
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        return try {
+        return runCatching {
+            val uri = if (Build.VERSION.SDK_INT >= 24) FileProvider.getUriForFile(app, "${app.packageName}.files", file)
+                else Uri.fromFile(file)
             GuardSetup.noteInstallerOpened(app)
-            context.startActivity(intent)
-            install = Install.Opened
-            Log.i(TAG, "installer opened for ${file.length()} bytes")
-            true
-        } catch (e: ActivityNotFoundException) {
-            Log.w(TAG, "no installer", e)
+            for (intent in installerIntents(uri)) {
+                if (runCatching { context.startActivity(intent) }.isSuccess) {
+                    install = Install.Opened
+                    Log.i(TAG, "installer opened for ${file.length()} bytes")
+                    return@runCatching true
+                }
+            }
             false
-        } catch (e: SecurityException) {
-            Log.w(TAG, "installer refused", e)
-            false
-        }
+        }.onFailure { Log.w(TAG, "could not share APK with installer", it) }.getOrDefault(false)
     }
+
+    @Suppress("DEPRECATION")
+    internal fun installerIntents(uri: Uri): List<Intent> =
+        listOf(Intent.ACTION_VIEW, Intent.ACTION_INSTALL_PACKAGE).map { action ->
+            Intent(action).setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                .apply { clipData = android.content.ClipData.newRawUri("Luna TV update", uri) }
+        }
 }

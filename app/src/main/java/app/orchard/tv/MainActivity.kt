@@ -56,6 +56,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.lifecycleScope
+import app.orchard.tv.apps.AppCatalog
 import app.orchard.tv.apps.AppEntry
 import app.orchard.tv.apps.CustomIcons
 import app.orchard.tv.apps.IconLibrary
@@ -80,7 +81,6 @@ import app.orchard.tv.ui.theme.LocalReducedMotion
 import app.orchard.tv.ui.theme.canvasDensity
 import app.orchard.tv.ui.theme.FontWarmup
 import app.orchard.tv.ui.components.UhdCanvas
-import app.orchard.tv.system.DisplayRefreshRate
 import app.orchard.tv.settings.AerialSettings
 import app.orchard.tv.settings.Restricted
 import app.orchard.tv.guard.KidsWatch
@@ -136,8 +136,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private val packageReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) = vm.reload()
+        override fun onReceive(context: Context, intent: Intent) {
+            idleHandler.removeCallbacks(reloadPackages)
+            idleHandler.postDelayed(reloadPackages, 400)
+        }
     }
+    private val reloadPackages = Runnable { vm.reload() }
+    private val rebindGuard = Runnable { GuardSetup.rebindIfStalled(this) }
+    private var returnWork: kotlinx.coroutines.Job? = null
 
     private val volumeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) = vm.refreshVolume()
@@ -156,7 +162,10 @@ class MainActivity : ComponentActivity() {
      * (issue #1314). Registered only while resumed; a check that is not due does nothing.
      */
     private val minuteReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) = Wallpapers.rotateIfDue()
+        override fun onReceive(context: Context, intent: Intent) {
+            Wallpapers.rotateIfDue()
+            if (AerialSettings.showWeather) Weather.refreshIfStale()
+        }
     }
     private var minuteReceiverOn = false
 
@@ -242,7 +251,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         super.onCreate(savedInstanceState)
-        if (app.orchard.tv.migration.MigrationTransfer.redirect(this)) return
+
         if (savedInstanceState == null && reopenAsHome()) return
         startReal(savedInstanceState)
     }
@@ -311,6 +320,7 @@ class MainActivity : ComponentActivity() {
         Restricted.init(this)
         KidsWatch.start(this)
         val showFirstRunGuide = FirstRunGuideStore.shouldShow(this)
+        DiagLog.i("welcome: ${if (showFirstRunGuide) "awaiting first-use confirmation" else "already completed; opening Home"}")
         // After the settings: the artwork's size follows the number of apps a row.
         TileArtFactory.useCanvasDensity(canvasDensity(resources.displayMetrics) * uhd)
         Sounds.init(this)
@@ -334,7 +344,6 @@ class MainActivity : ComponentActivity() {
             }
         })
         PhoneHomePreview.bind(this) { vm.resumed && !vm.screensaverVisible && vm.overlay == Overlay.None && !FirstRunGuideStore.shouldShow(this) }
-        applyHomeRefreshRate()
         if (DiagLog.softLayer(this) && uhd == 1f) window.decorView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         FrameStats.attach(window)
         logWindow()
@@ -353,11 +362,14 @@ class MainActivity : ComponentActivity() {
                     vm = vm,
                     onLaunch = ::launch,
                     onOpen = ::open,
+                    onMusicOpened = {
+                        openedAppSinceHome = true
+                        OnlineRotation.noteExternalAppOpened()
+                    },
                     onAppInfo = { open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", it, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
                     onUninstall = { open(Intent(Intent.ACTION_DELETE, Uri.fromParts("package", it, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
                     // Posted so the key-up of the Back press that started it does not end it at once.
                     onStartScreensaver = { idleHandler.postDelayed({ startScreensaver(asked = true) }, 150) },
-                    onRefreshRateChanged = ::applyHomeRefreshRate,
                 )
             }
         }
@@ -410,11 +422,16 @@ class MainActivity : ComponentActivity() {
         super.onTrimMemory(level)
         if (level < TRIM_MEMORY_RUNNING_LOW || level == TRIM_MEMORY_UI_HIDDEN) return
         DiagLog.i("trim memory, level $level")
+        app.orchard.tv.ui.components.trimBakedArtwork()
         Wallpapers.trimMemory()
         TileFaces.trimMemory()
     }
 
     override fun onDestroy() {
+        returnWork?.cancel()
+        consumedVolumeRepeats.cancel()
+        idleHandler.removeCallbacks(rebindGuard)
+        idleHandler.removeCallbacks(reloadPackages)
         PhoneHomePreview.unbind(this)
         if (locked) runCatching { unregisterReceiver(unlocked) }
         runCatching { unregisterReceiver(screenOnReceiver) }
@@ -544,15 +561,6 @@ class MainActivity : ComponentActivity() {
         }, REOPEN_VOLUME_NUDGE_MS)
     }
 
-    /** The preference applies to Aerial's window; other apps retain their own/system rate. */
-    private fun applyHomeRefreshRate() {
-        // Follow the system even if an earlier version saved a manual rate.
-        window.attributes = window.attributes.apply {
-            preferredRefreshRate = 0f
-            if (android.os.Build.VERSION.SDK_INT >= 23) preferredDisplayModeId = 0
-        }
-    }
-
     // ---- What Home's window does, for a TV whose logcat shows nothing (see DiagLog) ----
 
     private var draws = 0
@@ -571,6 +579,13 @@ class MainActivity : ComponentActivity() {
     /** The music stream's level and mute after the last key here came up. */
     private var volumeAtLift: Pair<Int, Boolean>? = null
 
+    private val consumedVolumeRepeats by lazy {
+        app.orchard.tv.system.ConsumedVolumeRepeats(idleHandler, ::volumeNow) { direction ->
+            SystemProbe.adjustVolume(this, direction, fromKey = true, showUi = true)
+            volumeAtLift = volumeNow()
+        }
+    }
+
     private fun volumeNow(): Pair<Int, Boolean>? = getSystemService<AudioManager>()?.let {
         runCatching {
             it.getStreamVolume(AudioManager.STREAM_MUSIC) to (Build.VERSION.SDK_INT >= 23 && it.isStreamMute(AudioManager.STREAM_MUSIC))
@@ -588,9 +603,9 @@ class MainActivity : ComponentActivity() {
      *   volume press went down (C10 sent VOLUME_UP #47 here after its lift, and its VOLUME_DOWN
      *   went on repeating with a lift between every three; A7D's repeats ran on while the guard
      *   kept newer presses, see HomeGuardService.volumePressOver);
-     * - a press, repeats included, that had already moved the volume by the time it got here, as
-     *   the guard does for keys at its filter (HomeGuardService.takeVolumeKey). The level is the
-     *   one after the last key here came up, so Control Center's slider counts as no change.
+     * - a press that had already moved the volume by the time it got here, as the guard does
+     *   at its filter. Actual held repeats still get a deferred unmoved-volume fallback: not
+     *   every firmware acts on repeats as it did on the initial down. The lift always passes.
      * Not tested on any of these TVs; none at hand.
      */
     private fun dropVolumeKey(event: KeyEvent): Boolean {
@@ -598,10 +613,12 @@ class MainActivity : ComponentActivity() {
         if (event.action == KeyEvent.ACTION_UP) {
             volumeUpHere = event.eventTime
             volumeAtLift = volumeNow()
-            return event.downTime == volumeMovedDown
+            // The firmware must see the lift even when Home consumed the down/repeats.
+            return false
         }
         if (event.action != KeyEvent.ACTION_DOWN) return false
         if (event.repeatCount == 0) {
+            consumedVolumeRepeats.begin()
             volumeDownHere = event.downTime
             val now = volumeNow()
             val before = volumeAtLift
@@ -612,11 +629,14 @@ class MainActivity : ComponentActivity() {
             }
             return false
         }
-        if (event.downTime == volumeMovedDown) return true
         val over = volumeUpHere >= event.downTime || volumeDownHere > event.downTime ||
             HomeGuardService.volumeKeyCameUp(event.keyCode, event.downTime) ||
             HomeGuardService.volumePressOver(this, event.downTime)
-        if (!over) return false
+        if (!over) {
+            if (event.downTime != volumeMovedDown) return false
+            consumedVolumeRepeats.repeat(if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP) 1 else -1)
+            return true
+        }
         if (event.downTime != staleVolumeDown) {
             staleVolumeDown = event.downTime
             DiagLog.i("key $name #${event.repeatCount} repeats a press that is over; dropped")
@@ -714,7 +734,7 @@ class MainActivity : ComponentActivity() {
      */
     private fun startScreensaver(asked: Boolean) {
         if (FirstRunGuideStore.shouldShow(this)) return
-        if (vm.overlay is Overlay.Announcement) { restartIdleTimer(); return }
+        if (vm.overlay is Overlay.Announcement || vm.overlay == Overlay.Feedback) { restartIdleTimer(); return }
         AerialSettings.relock()
         // A parent who left Kids mode has walked away.
         Restricted.rearm()
@@ -723,14 +743,13 @@ class MainActivity : ComponentActivity() {
             return
         }
         val carry = saverCarriesWallpaper(this)
-        // A flip clock does not need a video decoder. Keep this particular transition in Home,
-        // so the uploaded wallpaper's paused surface survives the fade and can resume on wake.
-        // Other screensavers keep the existing system-dream/decoder handoff.
-        val holdVideo = Wallpapers.holdVideoForSaver()
-        if (!carry && !holdVideo && !dreamFails(this) && SystemScreensaver.isAerials(this)) {
+        // A separately selected saver gets the system dream and its own video-layer ownership.
+        val keepWallpaperWindow = Wallpapers.moves() && app.orchard.tv.ui.home.saverRetainsWallpaper(Wallpapers.screensaver)
+        if (!carry && !keepWallpaperWindow && !dreamFails(this) && SystemScreensaver.isAerials(this)) {
             // The dream's film needs the decoder the wallpaper's holds: TCL MT5879 failed Dolby
             // Vision beside it and the dream fell back to 4K HEVC.
             LiveFilm.onHome?.letDecoderGo()
+            app.orchard.tv.ui.home.HomeVideo.onHome?.letDecoderGo()
             if (SystemScreensaver.startDream(this)) {
                 DiagLog.i("screensaver starts as the system's dream")
                 dreamAskedAt = SystemClock.uptimeMillis()
@@ -799,20 +818,18 @@ class MainActivity : ComponentActivity() {
         // taking focus (TCL MT5879: a press 18 ms after onPause, focus gone 400 ms later), and a
         // timer set then would start the screensaver over the app's video (issue #974).
         if (!vm.resumed) return
-        if (AerialSettings.screensaverMinutes != AerialSettings.NEVER) {
+        val never = AerialSettings.screensaverMinutes == AerialSettings.NEVER
+        if (!never) {
             val idle = idleBeforeScreensaver()
             idleHandler.postDelayed(showScreensaver, idle)
             if (idle > SAVER_AHEAD_MS) idleHandler.postDelayed(prepareScreensaver, idle - SAVER_AHEAD_MS)
-            if (holdsOffTheDream() && window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON == 0) {
-                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            }
         }
-        // Not with "System": the firmware's screensaver is wanted then, and holding the screen on
-        // held it off (Xiaomi's starts on its own timer, screen_saver_timeout).
-        else if (Wallpapers.screensaver != ScreensaverMode.System &&
-            window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON == 0 && screenNeverOff()) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
+        // Match the flag to the current mode on every transition, including "System" (#1609).
+        val keepOn = Wallpapers.screensaver != ScreensaverMode.System &&
+            if (never) screenNeverOff() else holdsOffTheDream()
+        val held = window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
+        if (keepOn && !held) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else if (!keepOn && held && !vm.screensaverVisible) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     /**
@@ -963,9 +980,11 @@ class MainActivity : ComponentActivity() {
         // The phone and computer page, at any time the TV is on (only once unlocked: its token is
         // in credential-protected storage).
         lifecycleScope.launch(Dispatchers.IO) { PhoneServer.listen(this@MainActivity) }
-        GuardSetup.ensureEnabled(this)
-        idleHandler.postDelayed({ GuardSetup.rebindIfStalled(this) }, 5_000)
-        vm.reloadIfPackagesChanged()
+        // Secure-settings, AccountManager and vendor receivers use synchronous Binder calls.
+        // They must not contend with the first returning wallpaper/UI frame.
+        lifecycleScope.launch(Dispatchers.IO) { GuardSetup.ensureEnabled(this@MainActivity) }
+        idleHandler.removeCallbacks(rebindGuard)
+        idleHandler.postDelayed(rebindGuard, 5_000)
         ContextCompat.registerReceiver(
             this, packageReceiver,
             IntentFilter().apply {
@@ -1004,10 +1023,7 @@ class MainActivity : ComponentActivity() {
         // for nothing (measured 100-380 ms, main thread held 204 ms at times), and on a cold start
         // it cancelled the load init() had begun and ran it again. On this TCL the guard brings
         // Aerial back several times a minute, so each bounce cost a full rebuild.
-        Wallpapers.refreshDailyIfStale()
-        Wallpapers.rotateIfDue()
-        Weather.refreshIfStale()
-        Updates.checkIfStale()
+        // Content and vendor queries resume after Home's first transition, in resumeWork.
     }
 
     override fun onResume() {
@@ -1047,7 +1063,19 @@ class MainActivity : ComponentActivity() {
         GuardSetup.setHomeInFront(this, true)
         HomeGuardService.onAerialResumed(this)
         Updates.onHomeResumed()
-        vm.refreshSystem()
+        returnWork?.cancel()
+        returnWork = lifecycleScope.launch {
+            // First return frames belong to focus, the clock and the video surface. These
+            // refreshes are neither launch prerequisites nor reasons to rebuild Home on pause.
+            delay(600)
+            if (!vm.resumed) return@launch
+            vm.reloadIfPackagesChanged()
+            vm.refreshSystem()
+            Wallpapers.refreshDailyIfStale()
+            Wallpapers.rotateIfDue()
+            Weather.refreshIfStale()
+            Updates.checkIfStale()
+        }
         if (!resumedInProcess) {
             resumedInProcess = true
             val age = if (Build.VERSION.SDK_INT >= 24) SystemClock.elapsedRealtime() - android.os.Process.getStartElapsedRealtime() else -1L
@@ -1080,7 +1108,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        if (locked) return
+        consumedVolumeRepeats.cancel()
+        returnWork?.cancel()
+        if (locked || !realStarted) return
         vm.wallpaperTransientPause = !openedAppSinceHome && !wallpaperExternalPage
         vm.resumed = false
         if (minuteReceiverOn) { runCatching { unregisterReceiver(minuteReceiver) }; minuteReceiverOn = false }
@@ -1116,6 +1146,7 @@ class MainActivity : ComponentActivity() {
         // An app, the screensaver or standby in front: the PIN is asked again, as in Lite (#718).
         AerialSettings.relock()
         unregisterReceiver(packageReceiver)
+        idleHandler.removeCallbacks(reloadPackages)
         unregisterReceiver(volumeReceiver)
         unregisterReceiver(dayReceiver)
         runCatching { getSystemService<ConnectivityManager>()?.unregisterNetworkCallback(networkCallback) }
@@ -1128,52 +1159,71 @@ class MainActivity : ComponentActivity() {
             DiagLog.i("kids: ${app.key} not opened")
             return
         }
-        // The TV's settings app behind the parental PIN as well, not only Control Center's button.
-        if (AerialSettings.locked && SystemProbe.isSettingsApp(this, app.packageName)) {
-            vm.whenUnlocked { launch(app, bounds) }
-            return
-        }
-        openedAppSinceHome = true
-        OnlineRotation.noteExternalAppOpened()
-        SystemProbe.settingsTileIntent(this, app.packageName)?.let {
-            open(it)
-            return
-        }
-        // The stock launcher (Xiaomi's PatchWall, with the maker's own iQIYI / Mango content) opens
-        // through the system Home action where it can; see HomeGuardService.openStockLauncher.
-        if (HomeGuardService.isStockHome(app.packageName) &&
-            HomeGuardService.openStockLauncher(app.packageName) { startStockLauncher(app) }
-        ) return
-        val options = bounds?.asFocusedTile()?.let {
-            ActivityOptions.makeScaleUpAnimation(
-                window.decorView, it.left.toInt(), it.top.toInt(), it.width.toInt(), it.height.toInt(),
-            ).toBundle().apply {
-                // The options name Aerial's package, and on TCL 65C6 (MStar m7221, Android 8) the
-                // app opened with them ran as Aerial's: 云视听极光 failed its settings read for a
-                // package not its own and 凤凰秀's packer refused to load; both opened from adb
-                // (issue #590). A scale-up needs no package; not yet tried on that TV.
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) remove("android:activity.packageName")
-            }
-        }
-        // Xiaomi's settings tile can close at once like Control Center's button (issue #834).
-        LaunchFallback.arm(if (app.packageName == "com.xiaomi.mitv.settings") SystemProbe.settingsFallbacks(this) else emptyList())
-        // Older Konka: an input tile switches like Control Center's list, the input first and then
-        // its page; started directly it showed the input last used (Konka 828, Android 5.0.1, 1.83:
-        // the list switched, the tiles did not; issue #710, the reporter's local build).
-        if (app.source != null && KonkaSources.needsSwitch(app.launchIntent())) {
-            open(app.launchIntent())
-            return
-        }
+        // Firmware probes, guard Binder calls and animation setup can fail before startActivity.
+        // Keep the entire tile launch inside the same recovery boundary.
         try {
+            val settingsApp = AppCatalog.isSettingsTile(app.key) ||
+                (AppCatalog.settingsRole(app.packageName) ?: SystemProbe.isSettingsApp(this, app.packageName))
+            val stockHome = app.source == null && app.folder == null && app.shortcut == null &&
+                (AppCatalog.isHomeTile(app.key) || HomeGuardService.isStockHome(app.packageName) ||
+                    (AppCatalog.homeRole(app.packageName) ?: isHomeApp(app.packageName)))
+            // The TV's settings app behind the parental PIN as well, not only Control Center's button.
+            // A retained PIN is dormant outside family mode. whenUnlocked runs immediately
+            // then, so calling launch again under a PIN-only check recurses until ANR/overflow.
+            if (Restricted.active && AerialSettings.locked && settingsApp) {
+                vm.whenUnlocked { launch(app, bounds) }
+                return
+            }
+            openedAppSinceHome = true
+            OnlineRotation.noteExternalAppOpened()
+            SystemProbe.settingsTileIntent(this, app.packageName,
+                settingsTile = app.source == null && app.folder == null && app.shortcut == null &&
+                    (AppCatalog.isSettingsTile(app.key) || (settingsApp && !stockHome)),
+            )?.let {
+                open(it)
+                return
+            }
+            // The stock launcher (Xiaomi's PatchWall, with the maker's own iQIYI / Mango content) opens
+            // through the system Home action where it can; see HomeGuardService.openStockLauncher.
+            if (stockHome) {
+                // System pages do not need the tile animation's launcher attribution or task flags.
+                HomeGuardService.allowStockLauncher(this)
+                if (HomeGuardService.openStockLauncher(app.packageName) { startStockLauncher(app) }) return
+                OnlineRotation.cancelExternalReturn()
+                Toast.makeText(this, getString(R.string.launch_failed, app.label), Toast.LENGTH_SHORT).show()
+                return
+            }
+            val options = if (settingsApp) null else runCatching { bounds?.asFocusedTile()?.let {
+                ActivityOptions.makeScaleUpAnimation(
+                    window.decorView, it.left.toInt(), it.top.toInt(), it.width.toInt(), it.height.toInt(),
+                ).toBundle().apply {
+                    // The options name Aerial's package, and on TCL 65C6 (MStar m7221, Android 8) the
+                    // app opened with them ran as Aerial's: 云视听极光 failed its settings read for a
+                    // package not its own and 凤凰秀's packer refused to load; both opened from adb
+                    // (issue #590). A scale-up needs no package; not yet tried on that TV.
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) remove("android:activity.packageName")
+                }
+            }
+            }.getOrNull()
+            // Xiaomi's settings tile can close at once like Control Center's button (issue #834).
+            LaunchFallback.arm(if (app.packageName == "com.xiaomi.mitv.settings") SystemProbe.settingsFallbacks(this) else emptyList())
+            // Older Konka: an input tile switches like Control Center's list, the input first and then
+            // its page; started directly it showed the input last used (Konka 828, Android 5.0.1, 1.83:
+            // the list switched, the tiles did not; issue #710, the reporter's local build).
+            if (app.source != null && KonkaSources.needsSwitch(app.launchIntent())) {
+                open(app.launchIntent())
+                return
+            }
             FilmAfterInput.noteOpened(this, app.launchIntent())
             if (app.source != null) allowInputThroughHome(app.launchIntent())
             if (HisenseSources.open(this, app.launchIntent())) return
             startActivity(settingsLaunchIntent(this, app.launchIntent()), options)
         } catch (e: Exception) {
+            DiagLog.i("tile launch failed for ${app.key}: ${e.javaClass.simpleName}: ${e.message}")
             wallpaperExternalPage = false
             // XGIMI (GMUI): nothing answers the passthrough intent a source tile carries, so the tile
             // opens the source page of its settings service instead (issue #241).
-            if (app.source != null && SystemProbe.openInputPicker(this)) return
+            if (app.source != null && (SystemProbe.openXgimiInput(this, app.launchIntent()) || SystemProbe.openInputPicker(this))) return
             // PatchWall's entry needs its permission whether or not the guard runs, and with the
             // guard switched off its tile did nothing (MiTV-ANSP0, Android 9, issue #971).
             if (e is SecurityException && startStockLauncher(app)) {
@@ -1269,7 +1319,9 @@ class MainActivity : ComponentActivity() {
             wallpaperExternalPage = false
             // XGIMI (GMUI): its inputs carry a passthrough intent that nothing answers, so switching
             // goes through the source page of its settings service (issue #241).
-            if (intent.data?.host == "android.media.tv" && SystemProbe.openInputPicker(this)) return
+            if (intent.data?.host == "android.media.tv" &&
+                (SystemProbe.openXgimiInput(this, intent) || SystemProbe.openInputPicker(this))
+            ) return
             LaunchFallback.next()?.let { return open(it) }
             Toast.makeText(this, R.string.unavailable, Toast.LENGTH_SHORT).show()
         }
