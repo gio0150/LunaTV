@@ -43,6 +43,16 @@
     <string name="luna_live_drawer_title">Channels</string>
     <string name="luna_live_channel_count">%1$d channels</string>
     <string name="luna_live_manage">Manage sources</string>
-    <string name="luna_live_drawer_hint">D-pad: choose · MENU/Back: close</string>
+    <string name="luna_live_drawer_hint">Up/Down: select · Left/Right: category or channel · OK: play · Back: close</string>
+    <string name="luna_live_toolbar_channels">Channels</string>
+    <string name="luna_live_toolbar_favorite">Favourite</string>
+    <string name="luna_live_toolbar_unfavorite">Unfavourite</string>
+    <string name="luna_live_toolbar_exit">Exit live</string>
+    <string name="luna_live_toolbar_hint">Left/Right: choose · OK: run · Back: close</string>
     <string name="luna_live_loading_channel">Loading %1$s…</string>
+
+    <string name="luna_live_cat_cctv">CCTV</string>
+    <string name="luna_live_cat_satellite">Satellite</string>
+    <string name="luna_live_cat_local">Local</string>
+    <string name="luna_live_cat_other">Other</string>
 </resources>

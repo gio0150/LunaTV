@@ -788,6 +788,9 @@ internal fun SettingsSidebar(selected: Int, recent: Int, remoteFirstFocus: Focus
         R.string.halo_cat_performance, R.string.halo_cat_cast, R.string.luna_live_sources_tab,
         R.string.halo_cat_about, R.string.island_title)
     val glyphs = listOf(Glyph.Home, Glyph.Folder, Glyph.Calendar, Glyph.Photo, Glyph.Switches, Glyph.Kids, Glyph.Performance, Glyph.Cast, Glyph.Play, Glyph.Info, Glyph.Switches)
+    // A category changes only on an explicit click/OK. Focus alone must not change it: when a
+    // live-source row is removed after an update or delete, Compose restores focus to a nearby
+    // sidebar row, and treating that as a selection sent the tab back to another settings page.
     Column(Modifier.width(200.dp).fillMaxHeight()
         .clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.06f)).padding(8.dp)) {
         // Keep category IDs stable for the saved recent entry.
@@ -799,7 +802,7 @@ internal fun SettingsSidebar(selected: Int, recent: Int, remoteFirstFocus: Focus
                 modifier = Modifier.fillMaxWidth().focusProperties {
                     if (index == 4 && selected == 4) right = remoteFirstFocus
                     if (index == 10 && selected == 10 && islandFirstFocus != null) right = islandFirstFocus
-                }.onFocusChanged { if (it.isFocused) onSelect(index) },
+                },
             ) { state ->
                 val bg = when { state.focused -> Palette.Focus; selected == index -> Color.White.copy(alpha = 0.18f); else -> Color.Transparent }
                 val fg = if (state.focused) Palette.OnFocus else Palette.Label

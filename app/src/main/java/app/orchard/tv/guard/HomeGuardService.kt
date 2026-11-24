@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -17,6 +19,7 @@ import android.database.ContentObserver
 import android.media.AudioManager
 import android.media.tv.TvInputManager
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -30,6 +33,7 @@ import android.view.KeyEvent
 import android.view.ViewConfiguration
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityManager
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import app.orchard.tv.MainActivity
@@ -2582,6 +2586,27 @@ class HomeGuardService : AccessibilityService() {
             .isSuccess
     }
 
+    /**
+     * Types into the focused editor of whatever app is in front. This goes through the same
+     * accessibility binding the Home guard already has, so the phone remote can send text into
+     * other apps without WRITE_SECURE_SETTINGS or switching the viewer's keyboard.
+     */
+    private fun typeIntoFocusedEditor(text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val focus = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
+            ?: return false
+        if (!focus.isEditable) return false
+        val arguments = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }
+        if (focus.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)) return true
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return false
+        clipboard.setPrimaryClip(ClipData.newPlainText("Luna TV", text))
+        focus.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        return focus.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+    }
+
     companion object {
         private const val TAG = "AerialGuard"
         private const val BRING_BACK_REQUEST = 933
@@ -2954,6 +2979,11 @@ class HomeGuardService : AccessibilityService() {
         /** Global Back for the phone remote; only available while the guard is connected. */
         fun performBack(): Boolean = instance?.let { service ->
             runCatching { service.performGlobalAction(GLOBAL_ACTION_BACK) }.getOrDefault(false)
+        } ?: false
+
+        /** Text for the phone remote, written into the focused field through accessibility. */
+        fun commitText(text: String): Boolean = instance?.let { service ->
+            runCatching { service.typeIntoFocusedEditor(text) }.getOrDefault(false)
         } ?: false
 
         /** Brings Aerial's Home to the front as Home does; false while the guard is not running. */

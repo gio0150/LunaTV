@@ -88,11 +88,46 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** One row of the OneTV-style left drawer: a section title or a selectable channel. */
-private sealed interface DrawerRow {
-    val key: String
-    data class Header(val title: String) : DrawerRow { override val key get() = "h:$title" }
-    data class Channel(val channel: LiveChannel, override val key: String) : DrawerRow
+/** Broad channel sections, modelled on OneTV: CCTV, satellite, local and everything else. */
+private enum class LiveSection { All, Favorites, Cctv, Satellite, Local, Other }
+
+/** The bottom bar opened by OK while watching; no remote MENU key is needed. */
+private enum class LiveToolbarAction { Channels, Favorite, Unfavorite, Exit }
+
+private val liveSections = listOf(
+    LiveSection.All, LiveSection.Favorites, LiveSection.Cctv,
+    LiveSection.Satellite, LiveSection.Local, LiveSection.Other,
+)
+
+private fun sectionOf(channel: LiveChannel): LiveSection = when (ChannelNames.category(channel.name)) {
+    ChannelNames.Category.CCTV -> LiveSection.Cctv
+    ChannelNames.Category.SATELLITE -> LiveSection.Satellite
+    ChannelNames.Category.LOCAL -> LiveSection.Local
+    ChannelNames.Category.OTHER -> LiveSection.Other
+}
+
+private fun sectionLabel(context: android.content.Context, section: LiveSection): String = when (section) {
+    LiveSection.All -> context.getString(R.string.luna_live_all_channels)
+    LiveSection.Favorites -> context.getString(R.string.luna_live_favorites)
+    LiveSection.Cctv -> context.getString(R.string.luna_live_cat_cctv)
+    LiveSection.Satellite -> context.getString(R.string.luna_live_cat_satellite)
+    LiveSection.Local -> context.getString(R.string.luna_live_cat_local)
+    LiveSection.Other -> context.getString(R.string.luna_live_cat_other)
+}
+
+/** Keeps CCTV-1 … CCTV-17 in broadcast order instead of the playlist's arbitrary order. */
+private fun cctvRank(name: String): Int {
+    val shown = ChannelNames.display(name).uppercase()
+    val number = Regex("""CCTV\s*-?\s*(\d+)""").find(shown)?.groupValues?.get(1)?.toIntOrNull()
+    return when {
+        shown.startsWith("CCTV-4K") -> 40
+        shown.startsWith("CCTV-8K") -> 42
+        number != null && shown.startsWith("CCTV-") ->
+            if (shown.contains("5+")) number * 2 + 1 else number * 2
+        number != null && shown.startsWith("CCTV+") -> 60 + number
+        shown.startsWith("CGTN") -> 90
+        else -> 80
+    }
 }
 
 /**
@@ -118,8 +153,13 @@ fun LiveHost(vm: HomeViewModel) {
     var playbackState by remember { mutableIntStateOf(Player.STATE_IDLE) }
     var renderedFirstFrame by remember { mutableStateOf(false) }
     var drawerOpen by remember { mutableStateOf(false) }
-    var favoritesOnly by remember { mutableStateOf(false) }
-    var drawerRow by remember { mutableIntStateOf(-1) }
+    var toolbarOpen by remember { mutableStateOf(false) }
+    var toolbarIndex by remember { mutableIntStateOf(0) }
+    var section by remember { mutableStateOf(LiveSection.All) }
+    var sectionIndex by remember { mutableIntStateOf(0) }
+    var channelIndex by remember { mutableIntStateOf(0) }
+    var sectionFocus by remember { mutableStateOf(false) }
+    var favoritesRevision by remember { mutableIntStateOf(0) }
     var titleVisible by remember { mutableStateOf(false) }
     val baseFocus = remember { FocusRequester() }
     val listState = rememberLazyListState()
@@ -129,24 +169,26 @@ fun LiveHost(vm: HomeViewModel) {
     val replayState by rememberUpdatedState(replayToken)
 
     val channels = remember(revision) { store.channels() }
-    val favoriteChannels = remember(revision) { store.favorites() }
+    val favoriteChannels = remember(revision, favoritesRevision) { store.favorites() }
+    val favoriteIds = remember(revision, favoritesRevision) { favoriteChannels.map { it.id }.toSet() }
+    val currentFavorite = current?.id?.let { it in favoriteIds } == true
     val channelNumbers = remember(channels) { channels.mapIndexed { index, channel -> channel.id to index + 1 }.toMap() }
     val activeName = remember(revision) { store.activeName() }
 
-    val drawerRows = remember(revision, favoritesOnly, channels, favoriteChannels) {
-        buildList {
-            if (!favoritesOnly && favoriteChannels.isNotEmpty()) {
-                add(DrawerRow.Header(context.getString(R.string.luna_live_favorites)))
-                favoriteChannels.forEach { add(DrawerRow.Channel(it, "f:${it.id}")) }
-                add(DrawerRow.Header(context.getString(R.string.luna_live_all_channels)))
-            }
-            if (favoritesOnly) {
-                favoriteChannels.forEach { add(DrawerRow.Channel(it, "f:${it.id}")) }
-            } else {
-                channels.groupBy { ChannelNames.group(it.group) }.forEach { (group, rows) ->
-                    add(DrawerRow.Header(group))
-                    rows.forEach { add(DrawerRow.Channel(it, "c:${it.id}")) }
-                }
+    val sectionChannels = remember(revision, section, channels, favoriteChannels) {
+        when (section) {
+            LiveSection.All -> channels
+            LiveSection.Favorites -> favoriteChannels
+            LiveSection.Cctv -> channels.filter { sectionOf(it) == section }.sortedBy { cctvRank(it.name) }
+            else -> channels.filter { sectionOf(it) == section }
+        }
+    }
+    val sectionCounts = remember(revision, channels, favoriteChannels) {
+        liveSections.associateWith { candidate ->
+            when (candidate) {
+                LiveSection.All -> channels.size
+                LiveSection.Favorites -> favoriteChannels.size
+                else -> channels.count { sectionOf(it) == candidate }
             }
         }
     }
@@ -189,6 +231,7 @@ fun LiveHost(vm: HomeViewModel) {
 
     fun closeLive() {
         exoPlayer.stop()
+        toolbarOpen = false
         vm.overlay = Overlay.ControlCenter()
     }
 
@@ -201,6 +244,7 @@ fun LiveHost(vm: HomeViewModel) {
         titleVisible = true
         current = channel
         drawerOpen = false
+        toolbarOpen = false
     }
 
     fun nextLine(reason: String? = null) {
@@ -228,8 +272,13 @@ fun LiveHost(vm: HomeViewModel) {
         }
     }
 
-    fun browseChannels(): List<LiveChannel> =
-        if (favoritesOnly && favoriteChannels.isNotEmpty()) favoriteChannels else channels
+    fun channelsIn(selected: LiveSection): List<LiveChannel> = when (selected) {
+        LiveSection.All -> channels
+        LiveSection.Favorites -> favoriteChannels
+        else -> channels.filter { sectionOf(it) == selected }
+    }
+
+    fun browseChannels(): List<LiveChannel> = sectionChannels.ifEmpty { channels }
 
     fun stepChannel(delta: Int) {
         val list = browseChannels()
@@ -238,38 +287,112 @@ fun LiveHost(vm: HomeViewModel) {
         play(list[if (index < 0) 0 else (index + delta + list.size) % list.size])
     }
 
-    fun drawerChannelIndex(from: Int, direction: Int): Int {
-        var index = from
-        while (true) {
-            index += direction
-            if (index !in drawerRows.indices) return from
-            if (drawerRows[index] is DrawerRow.Channel) return index
-        }
-    }
-
     fun openDrawer() {
-        val currentId = current?.id
-        drawerRow = drawerRows.indexOfFirst { it is DrawerRow.Channel && it.channel.id == currentId }
-            .takeIf { it >= 0 }
-            ?: drawerRows.indexOfFirst { it is DrawerRow.Channel }
-        if (drawerRow < 0) drawerRow = 0
+        val currentSection = current?.let(::sectionOf) ?: LiveSection.All
+        section = currentSection
+        sectionIndex = liveSections.indexOf(currentSection).takeIf { it >= 0 } ?: 0
+        val list = channelsIn(currentSection)
+        channelIndex = list.indexOfFirst { it.id == current?.id }.takeIf { it >= 0 } ?: 0
+        sectionFocus = false
+        toolbarOpen = false
         drawerOpen = true
     }
 
-    fun handleDrawerKey(keyCode: Int): Boolean = when (keyCode) {
-        KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_LEFT -> {
-            drawerRow = drawerChannelIndex(drawerRow, -1)
-            true
+    fun toolbarEnabled(action: LiveToolbarAction): Boolean = when (action) {
+        LiveToolbarAction.Favorite -> current != null && !currentFavorite
+        LiveToolbarAction.Unfavorite -> current != null && currentFavorite
+        else -> true
+    }
+
+    fun openToolbar() {
+        toolbarIndex = 0
+        toolbarOpen = true
+        titleVisible = true
+    }
+
+    fun moveToolbar(delta: Int) {
+        val actions = LiveToolbarAction.values()
+        var next = toolbarIndex
+        repeat(actions.size) {
+            next = (next + delta + actions.size) % actions.size
+            if (toolbarEnabled(actions[next])) {
+                toolbarIndex = next
+                return
+            }
         }
-        KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT -> {
-            drawerRow = drawerChannelIndex(drawerRow, 1)
-            true
+    }
+
+    fun runToolbar(action: LiveToolbarAction) {
+        when (action) {
+            LiveToolbarAction.Channels -> openDrawer()
+            LiveToolbarAction.Favorite -> current?.let { channel ->
+                if (!currentFavorite) {
+                    store.toggleFavorite(channel.id)
+                    favoritesRevision++
+                }
+            }
+            LiveToolbarAction.Unfavorite -> current?.let { channel ->
+                if (currentFavorite) {
+                    store.toggleFavorite(channel.id)
+                    favoritesRevision++
+                }
+            }
+            LiveToolbarAction.Exit -> closeLive()
         }
-        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-            (drawerRows.getOrNull(drawerRow) as? DrawerRow.Channel)?.let { play(it.channel) }
-            true
+        if (action != LiveToolbarAction.Channels && action != LiveToolbarAction.Exit) toolbarOpen = false
+    }
+
+    fun enterChannelList() {
+        if (sectionIndex !in liveSections.indices) {
+            drawerOpen = false
+            setupOpen = true
+            return
         }
-        else -> false
+        section = liveSections[sectionIndex]
+        val list = channelsIn(section)
+        channelIndex = list.indexOfFirst { it.id == current?.id }.takeIf { it >= 0 } ?: 0
+        sectionFocus = false
+    }
+
+    fun handleDrawerKey(keyCode: Int): Boolean {
+        val railCount = liveSections.size + 1
+        return if (sectionFocus) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP -> {
+                    sectionIndex = (sectionIndex - 1 + railCount) % railCount
+                    true
+                }
+                KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    sectionIndex = (sectionIndex + 1) % railCount
+                    true
+                }
+                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                    enterChannelList()
+                    true
+                }
+                else -> false
+            }
+        } else {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP -> {
+                    if (sectionChannels.isNotEmpty()) channelIndex = (channelIndex - 1 + sectionChannels.size) % sectionChannels.size
+                    true
+                }
+                KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    if (sectionChannels.isNotEmpty()) channelIndex = (channelIndex + 1) % sectionChannels.size
+                    true
+                }
+                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                    sectionFocus = true
+                    true
+                }
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                    sectionChannels.getOrNull(channelIndex)?.let { play(it) }
+                    true
+                }
+                else -> false
+            }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -299,14 +422,15 @@ fun LiveHost(vm: HomeViewModel) {
         if (current?.id == channel.id && !drawerOpen) titleVisible = false
     }
 
-    LaunchedEffect(drawerOpen, drawerRow) {
-        if (drawerOpen && drawerRow >= 0) listState.scrollToItem(drawerRow)
+    LaunchedEffect(drawerOpen, sectionIndex, channelIndex, sectionChannels) {
+        if (drawerOpen && !sectionFocus && sectionChannels.isNotEmpty()) {
+            listState.scrollToItem(channelIndex.coerceIn(0, sectionChannels.lastIndex))
+        }
     }
 
-    LaunchedEffect(drawerOpen, favoritesOnly, drawerRows) {
-        if (!drawerOpen) return@LaunchedEffect
-        val currentRow = drawerRows.indexOfFirst { it is DrawerRow.Channel && it.channel.id == current?.id }
-        if (currentRow >= 0 && drawerRows.getOrNull(drawerRow) !is DrawerRow.Channel) drawerRow = currentRow
+    LaunchedEffect(sectionChannels.size) {
+        if (sectionChannels.isEmpty()) channelIndex = 0
+        else if (channelIndex > sectionChannels.lastIndex) channelIndex = sectionChannels.lastIndex
     }
 
     LaunchedEffect(Unit) {
@@ -401,29 +525,57 @@ fun LiveHost(vm: HomeViewModel) {
                     if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
                     when (val key = event.nativeKeyEvent.keyCode) {
                         KeyEvent.KEYCODE_MENU -> {
-                            if (drawerOpen) drawerOpen = false else openDrawer()
+                            // Remotes that still have MENU are a shortcut only: every action below
+                            // is reachable from OK, so no TV depends on this key.
+                            if (toolbarOpen) {
+                                toolbarOpen = false
+                            } else if (drawerOpen) {
+                                drawerOpen = false
+                            } else {
+                                openToolbar()
+                            }
                             true
                         }
                         KeyEvent.KEYCODE_BACK -> {
-                            if (drawerOpen) drawerOpen = false else closeLive()
+                            when {
+                                toolbarOpen -> toolbarOpen = false
+                                drawerOpen -> drawerOpen = false
+                                else -> closeLive()
+                            }
                             true
                         }
-                        else -> if (drawerOpen) {
-                            handleDrawerKey(key)
-                        } else when (key) {
-                            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_LEFT -> {
-                                stepChannel(-1)
-                                true
+                        else -> when {
+                            toolbarOpen -> when (key) {
+                                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP -> {
+                                    moveToolbar(-1)
+                                    true
+                                }
+                                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                    moveToolbar(1)
+                                    true
+                                }
+                                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                                    runToolbar(LiveToolbarAction.values()[toolbarIndex])
+                                    true
+                                }
+                                else -> true
                             }
-                            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                stepChannel(1)
-                                true
+                            drawerOpen -> handleDrawerKey(key)
+                            else -> when (key) {
+                                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                    stepChannel(-1)
+                                    true
+                                }
+                                KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                    stepChannel(1)
+                                    true
+                                }
+                                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                                    openToolbar()
+                                    true
+                                }
+                                else -> false
                             }
-                            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                                openDrawer()
-                                true
-                            }
-                            else -> false
                         }
                     }
                 },
@@ -470,7 +622,7 @@ fun LiveHost(vm: HomeViewModel) {
                 }
             }
 
-            if (!drawerOpen && titleVisible && current != null) {
+            if (!drawerOpen && !toolbarOpen && titleVisible && current != null) {
                 Row(
                     Modifier.align(Alignment.BottomStart).padding(start = 30.dp, bottom = 28.dp)
                         .clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.72f))
@@ -505,6 +657,45 @@ fun LiveHost(vm: HomeViewModel) {
                 }
             }
 
+            if (toolbarOpen) {
+                Column(
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = 34.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Row(
+                        Modifier.clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xE6101318))
+                            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        LiveToolbarAction.values().forEachIndexed { index, action ->
+                            val label = stringResource(
+                                when (action) {
+                                    LiveToolbarAction.Channels -> R.string.luna_live_toolbar_channels
+                                    LiveToolbarAction.Favorite -> R.string.luna_live_toolbar_favorite
+                                    LiveToolbarAction.Unfavorite -> R.string.luna_live_toolbar_unfavorite
+                                    LiveToolbarAction.Exit -> R.string.luna_live_toolbar_exit
+                                },
+                            )
+                            val enabled = toolbarEnabled(action)
+                            LiveToolbarButton(
+                                label = label,
+                                focused = toolbarIndex == index,
+                                enabled = enabled,
+                                onClick = { if (enabled) runToolbar(action) },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    BasicText(
+                        stringResource(R.string.luna_live_toolbar_hint),
+                        style = Type.Caption.copy(color = Color.White.copy(alpha = 0.55f)),
+                    )
+                }
+            }
+
             playbackError?.let { message ->
                 Column(
                     Modifier.align(Alignment.BottomCenter).padding(bottom = 105.dp)
@@ -523,13 +714,13 @@ fun LiveHost(vm: HomeViewModel) {
 
             if (drawerOpen) {
                 Column(
-                    Modifier.width(392.dp).fillMaxHeight().padding(14.dp)
+                    Modifier.width(500.dp).fillMaxHeight().padding(14.dp)
                         .clip(RoundedCornerShape(22.dp))
                         .background(Color(0xE6101318))
                         .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(22.dp))
                         .padding(12.dp),
                 ) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             BasicText(stringResource(R.string.luna_live_drawer_title), style = Type.Title.copy(color = Color.White))
                             BasicText(
@@ -547,52 +738,80 @@ fun LiveHost(vm: HomeViewModel) {
                         }
                     }
                     Spacer(Modifier.height(10.dp))
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        DrawerChip(stringResource(R.string.luna_live_all_channels), !favoritesOnly) {
-                            favoritesOnly = false
-                            drawerRow = drawerRows.indexOfFirst { it is DrawerRow.Channel }
-                        }
-                        DrawerChip(stringResource(R.string.luna_live_favorites), favoritesOnly) {
-                            favoritesOnly = true
-                            drawerRow = drawerRows.indexOfFirst { it is DrawerRow.Channel }
-                        }
-                        Spacer(Modifier.weight(1f))
-                        DrawerChip(stringResource(R.string.luna_live_manage), false) {
-                            drawerOpen = false
-                            setupOpen = true
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    if (drawerRows.isEmpty()) {
-                        BasicText(
-                            stringResource(R.string.luna_live_pick_hint),
-                            style = Type.Callout.copy(color = Color.White.copy(alpha = 0.55f)),
-                            modifier = Modifier.padding(12.dp),
-                        )
-                    }
-                    LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f)) {
-                        items(drawerRows, key = { it.key }) { row ->
-                            when (row) {
-                                is DrawerRow.Header -> BasicText(
-                                    row.title,
-                                    style = Type.Caption.copy(color = Color.White.copy(alpha = 0.48f)),
-                                    modifier = Modifier.padding(start = 10.dp, top = 12.dp, bottom = 4.dp),
+                    Row(Modifier.fillMaxWidth().weight(1f)) {
+                        Column(
+                            Modifier.width(136.dp).fillMaxHeight(),
+                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            liveSections.forEachIndexed { index, candidate ->
+                                SectionRailRow(
+                                    label = sectionLabel(context, candidate),
+                                    count = sectionCounts[candidate] ?: 0,
+                                    selected = section == candidate,
+                                    focused = sectionFocus && sectionIndex == index,
+                                    onClick = {
+                                        sectionIndex = index
+                                        section = candidate
+                                        val list = channelsIn(candidate)
+                                        channelIndex = list.indexOfFirst { it.id == current?.id }.takeIf { it >= 0 } ?: 0
+                                        sectionFocus = false
+                                    },
                                 )
-                                is DrawerRow.Channel -> {
-                                    val index = drawerRows.indexOf(row)
-                                    DrawerChannelRow(
-                                        channel = row.channel,
-                                        number = channelNumbers[row.channel.id] ?: 0,
-                                        playing = current?.id == row.channel.id,
-                                        focused = drawerRow == index,
-                                        favorite = store.isFavorite(row.channel.id),
-                                        onClick = { play(row.channel) },
+                            }
+                            Spacer(Modifier.weight(1f))
+                            SectionRailRow(
+                                label = stringResource(R.string.luna_live_manage),
+                                count = null,
+                                selected = false,
+                                focused = sectionFocus && sectionIndex == liveSections.size,
+                                onClick = {
+                                    drawerOpen = false
+                                    setupOpen = true
+                                },
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f).fillMaxHeight()) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(start = 10.dp, end = 6.dp, top = 2.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                BasicText(
+                                    sectionLabel(context, section),
+                                    style = Type.Callout.copy(color = Color.White.copy(alpha = 0.72f)),
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                BasicText(
+                                    (sectionCounts[section] ?: 0).toString(),
+                                    style = Type.Caption.copy(color = Color.White.copy(alpha = 0.45f)),
+                                )
+                            }
+                            if (sectionChannels.isEmpty()) {
+                                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                                    BasicText(
+                                        if (section == LiveSection.Favorites) stringResource(R.string.luna_live_favorite) else stringResource(R.string.luna_live_pick_hint),
+                                        style = Type.Caption.copy(color = Color.White.copy(alpha = 0.48f)),
                                     )
+                                }
+                            } else {
+                                LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f)) {
+                                    items(sectionChannels, key = { it.id }) { channel ->
+                                        val index = sectionChannels.indexOf(channel)
+                                        DrawerChannelRow(
+                                            channel = channel,
+                                            number = if (section == LiveSection.All) (channelNumbers[channel.id] ?: 0) else index + 1,
+                                            playing = current?.id == channel.id,
+                                            focused = !sectionFocus && channelIndex == index,
+                                            favorite = channel.id in favoriteIds,
+                                            onClick = { play(channel) },
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(5.dp))
                     BasicText(
                         stringResource(R.string.luna_live_drawer_hint),
                         style = Type.Caption.copy(color = Color.White.copy(alpha = 0.42f)),
@@ -615,20 +834,68 @@ fun LiveHost(vm: HomeViewModel) {
 }
 
 @Composable
-private fun DrawerChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun LiveToolbarButton(
+    label: String,
+    focused: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val background = when {
+        focused -> Palette.Focus
+        enabled -> Color.White.copy(alpha = 0.09f)
+        else -> Color.White.copy(alpha = 0.035f)
+    }
+    val foreground = when {
+        focused -> Palette.OnFocus
+        enabled -> Color.White.copy(alpha = 0.94f)
+        else -> Color.White.copy(alpha = 0.32f)
+    }
+    Box(
+        Modifier.width(126.dp).height(48.dp)
+            .clip(RoundedCornerShape(13.dp))
+            .background(background)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        BasicText(label, style = Type.Callout.copy(color = foreground), maxLines = 1)
+    }
+}
+
+@Composable
+private fun SectionRailRow(
+    label: String,
+    count: Int?,
+    selected: Boolean,
+    focused: Boolean,
+    onClick: () -> Unit,
+) {
+    val background = when {
+        focused -> Palette.Focus
+        selected -> Color.White.copy(alpha = 0.11f)
+        else -> Color.Transparent
+    }
+    val foreground = if (focused) Palette.OnFocus else Color.White.copy(alpha = if (selected) 0.96f else 0.76f)
     Row(
-        Modifier.clip(RoundedCornerShape(9.dp))
-            .background(if (selected) Color.White else Color.White.copy(alpha = 0.08f))
+        Modifier.fillMaxWidth().height(39.dp)
+            .clip(RoundedCornerShape(10.dp)).background(background)
             .clickable(onClick = onClick)
             .focusProperties { canFocus = false }
-            .padding(horizontal = 11.dp, vertical = 6.dp),
+            .padding(horizontal = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicText(
             label,
-            style = Type.Caption.copy(color = if (selected) Color(0xFF111419) else Color.White.copy(alpha = 0.82f)),
-            maxLines = 1,
+            style = Type.Callout.copy(color = foreground),
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
         )
+        if (count != null) {
+            BasicText(
+                count.toString(),
+                style = Type.Caption.copy(color = if (focused) Palette.OnFocus.copy(alpha = 0.58f) else Color.White.copy(alpha = 0.42f)),
+            )
+        }
     }
 }
 

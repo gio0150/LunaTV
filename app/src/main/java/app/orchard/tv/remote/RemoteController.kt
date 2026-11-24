@@ -140,9 +140,13 @@ object RemoteController {
             return if (RemoteInputService.commit(text)) true to "ok" else false to "commit_failed"
         }
 
+        // The guard's accessibility binding can write into another app's focused editor without
+        // the development-only secure-settings grant, which a normal APK reinstall drops.
+        if (HomeGuardService.commitText(text)) return true to "ok"
+
         val secure = context.checkCallingOrSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (!secure) return false to "secure_settings_denied"
+        if (!secure) return false to if (HomeGuardService.isRunning) "guard_failed" else "guard_off"
 
         val resolver = context.contentResolver
         val previousDefault = runCatching {

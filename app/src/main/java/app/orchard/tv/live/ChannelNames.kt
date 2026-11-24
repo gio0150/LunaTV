@@ -187,6 +187,38 @@ object ChannelNames {
         "Undefined" to "其他",
     )
 
+    /** The four broad sections OneTV uses instead of the playlist's technical groups. */
+    enum class Category { CCTV, SATELLITE, LOCAL, OTHER }
+
+    private val nationalNonCctv = listOf(
+        "CETV", "中国教育电视台", "中国天气", "CHC", "CND", "金砖国家",
+        "美国之音", "VoA", "ABN", "Angel TV", "Bread TV", "HomePlus",
+    )
+
+    private val localMarkers = listOf(
+        "频道", "电视台", "新闻", "公共", "都市", "生活", "影视", "综艺",
+        "少儿", "体育", "教育", "科教", "经济", "民生", "文旅", "交通",
+        "法治", "政法", "购物", "纪实", "文化", "旅游", "农业", "乡村",
+        "城市", "娱乐", "音乐", "天气", "卡通", "综合",
+    )
+
+    /** Classifies a channel by the name viewers know, not by the playlist's category tags. */
+    fun category(name: String): Category {
+        val shown = display(name)
+        val raw = name.trim()
+        return when {
+            shown.startsWith("CCTV") || shown.startsWith("央视") ||
+                raw.startsWith("CCTV", ignoreCase = true) || raw.startsWith("CGTN", ignoreCase = true) ||
+                shown.contains("CGTN", ignoreCase = true) -> Category.CCTV
+            shown.contains("卫视") || shown.contains("卫星") ||
+                raw.contains("Satellite", ignoreCase = true) -> Category.SATELLITE
+            nationalNonCctv.any { raw.contains(it, ignoreCase = true) || shown.contains(it, ignoreCase = true) } ->
+                Category.OTHER
+            localMarkers.any { shown.contains(it) } -> Category.LOCAL
+            else -> Category.OTHER
+        }
+    }
+
     private val quality = Regex("""\s*\(\s*\d{3,4}[pi]\s*\)""", RegexOption.IGNORE_CASE)
     private val tag = Regex("""\s*\[\s*(?:Not\s+24/7|Geo-blocked)\s*]""", RegexOption.IGNORE_CASE)
     private val definition = Regex("""\s+(?:HD|SD|FHD|UHD)$""", RegexOption.IGNORE_CASE)

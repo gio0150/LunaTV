@@ -43,6 +43,16 @@
     <string name="luna_live_drawer_title">频道</string>
     <string name="luna_live_channel_count">%1$d 个频道</string>
     <string name="luna_live_manage">管理直播源</string>
-    <string name="luna_live_drawer_hint">方向键选择 · MENU/返回键关闭</string>
+    <string name="luna_live_drawer_hint">上下选择 · 左右切换分类与频道 · 确认播放 · 返回键关闭</string>
+    <string name="luna_live_toolbar_channels">选择频道</string>
+    <string name="luna_live_toolbar_favorite">收藏</string>
+    <string name="luna_live_toolbar_unfavorite">取消收藏</string>
+    <string name="luna_live_toolbar_exit">退出直播</string>
+    <string name="luna_live_toolbar_hint">左右选择 · 确认执行 · 返回键关闭</string>
     <string name="luna_live_loading_channel">正在加载 %1$s…</string>
+
+    <string name="luna_live_cat_cctv">央视</string>
+    <string name="luna_live_cat_satellite">卫视</string>
+    <string name="luna_live_cat_local">地方</string>
+    <string name="luna_live_cat_other">其他</string>
 </resources>

@@ -69,6 +69,7 @@ const remoteLabels = {
  remoteTextHint: ['先在电视上选中输入框，再用手机发送文字。', 'Select an input field on the TV first, then type on the phone.', 'Сначала выберите поле ввода на телевизоре, затем печатайте на телефоне.', 'Спочатку виберіть поле введення на телевізорі, потім друкуйте на телефоні.', 'Алдымен теледидарда енгізу өрісін таңдаңыз, содан кейін телефоннан жазыңыз.'],
  remoteGuardOff: ['桌面守护未开启：返回、菜单和关机可能不可用。', 'Home Guard is off: Back, Menu and Power may be unavailable.', 'Home Guard выключен: «Назад», «Меню» и «Питание» могут быть недоступны.', 'Home Guard вимкнено: «Назад», «Меню» і «Живлення» можуть бути недоступні.', 'Home Guard өшірулі: «Артқа», «Мәзір» және «Қуат» қолжетімсіз болуы мүмкін.'],
  remoteSecureDenied: ['未获得安全设置权限：手机发送文字不可用。', 'Secure settings are denied: phone text input is unavailable.', 'Нет доступа к защищённым настройкам: ввод текста с телефона недоступен.', 'Немає доступу до захищених налаштувань: введення тексту з телефону недоступне.', 'Қауіпсіз параметрлерге рұқсат жоқ: телефоннан мәтін енгізу қолжетімсіз.'],
+ remoteGuardText: ['电视守护未开启：请在电视设置中开启 Luna TV 的桌面守护后重试。', "Home Guard is off. Turn on Luna TV's Home Guard in TV settings and try again.", 'Home Guard выключен. Включите Home Guard Luna TV в настройках телевизора и повторите.', 'Home Guard вимкнено. Увімкніть Home Guard Luna TV у налаштуваннях телевізора і повторіть.', 'Home Guard өшірулі. Теледидар параметрлерінде Luna TV Home Guard қосып, қайталаңыз.'],
  remoteSent: ['已发送到电视', 'Sent to TV', 'Отправлено на телевизор', 'Надіслано на телевізор', 'Теледидарға жіберілді'],
  remoteFailed: ['操作未生效，请检查电视连接', 'Action did not work; check the TV connection', 'Действие не сработало; проверьте подключение к ТВ', 'Дія не спрацювала; перевірте підключення до ТБ', 'Әрекет орындалмады; теледидарға қосылуды тексеріңіз'],
  remoteNotFocused: ['请先在电视上选中输入框', 'Select an input field on the TV first', 'Сначала выберите поле ввода на телевизоре', 'Спочатку виберіть поле введення на телевізорі', 'Алдымен теледидарда енгізу өрісін таңдаңыз'],
@@ -230,6 +231,8 @@ function remoteFailText(msg){
  if(msg==='locked') return H('remoteLocked');
  if(msg==='ime_not_focused'||msg==='commit_failed'||msg==='invalid_text') return H('remoteNotFocused');
  if(msg==='secure_settings_denied') return H('remoteSecureDenied');
+ if(msg==='guard_off') return H('remoteGuardText');
+ if(msg==='guard_failed') return H('remoteNotFocused');
  if(msg==='authorization_required'||msg==='adb_disconnected'||msg==='adb_failed') return H('remoteAuthorization');
  return H('remoteFailed');
 }
